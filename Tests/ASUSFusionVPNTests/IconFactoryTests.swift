@@ -20,6 +20,15 @@ import Testing
 }
 
 @MainActor
+@Test func disconnectedMenuBarIconDoesNotStackOpacityAtShapeOverlaps() throws {
+    let image = IconFactory.menuBarIcon(state: .disconnected)
+    let alphas = try renderedAlphaValues(from: image)
+    let solidPixels = alphas.filter { $0 > 120 }
+
+    #expect((solidPixels.max() ?? 0) - (solidPixels.min() ?? 0) <= 10)
+}
+
+@MainActor
 private func renderedAlphaValues(from image: NSImage) throws -> [Int] {
     let size = NSSize(width: 20, height: 20)
     guard

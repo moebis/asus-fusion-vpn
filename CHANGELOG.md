@@ -4,6 +4,12 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [1.0.2] - 2026-05-09
+
+### Fixed
+
+- Simplify the menu bar icon to a single solid glyph so inactive opacity is uniform and no line/circle intersections are visible.
+
 ## [1.0.1] - 2026-05-09
 
 ### Fixed
