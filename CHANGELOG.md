@@ -4,6 +4,12 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [1.0.1] - 2026-05-09
+
+### Fixed
+
+- Render the menu bar icon with reduced opacity while disconnected or unknown so inactive VPN state is visually distinct from the connected state.
+
 ## [1.0] - 2026-05-09
 
 ### Added

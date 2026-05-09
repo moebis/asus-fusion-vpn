@@ -54,7 +54,7 @@ These are starter defaults only. Open `Settings...` from the menu bar app before
 
 Download the latest DMG from [GitHub Releases](https://github.com/moebis/asus-fusion-vpn/releases), then:
 
-1. Open `ASUS-Fusion-VPN-1.0-universal.dmg`.
+1. Open the downloaded `ASUS-Fusion-VPN-<version>-universal.dmg`.
 2. Drag `ASUS Fusion VPN.app` to `Applications`.
 3. Launch `ASUS Fusion VPN` from `Applications`.
 4. Open the menu bar item, choose `Settings...`, and enter your router SSH details.

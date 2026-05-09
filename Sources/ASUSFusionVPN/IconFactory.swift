@@ -9,9 +9,9 @@ enum IconFactory {
                 NSPoint(x: rect.maxX - 4.7, y: rect.minY + 4.2)
             ]
 
-            _ = state
-            NSColor.black.setStroke()
-            NSColor.black.setFill()
+            let iconColor = NSColor.black.withAlphaComponent(opacity(for: state))
+            iconColor.setStroke()
+            iconColor.setFill()
 
             drawSegment(from: points[0], to: points[1])
             drawSegment(from: points[2], to: points[1])
@@ -37,5 +37,14 @@ enum IconFactory {
         path.move(to: start)
         path.line(to: end)
         path.stroke()
+    }
+
+    private static func opacity(for state: VPNConnectionState) -> CGFloat {
+        switch state {
+        case .connected, .connecting:
+            1.0
+        case .disconnected, .unknown:
+            0.25
+        }
     }
 }

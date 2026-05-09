@@ -3,11 +3,20 @@ import Testing
 @testable import ASUSFusionVPN
 
 @MainActor
-@Test func disconnectedMenuBarIconUsesFullOpacityTemplatePixels() throws {
-    let image = IconFactory.menuBarIcon(state: .disconnected)
+@Test func connectedMenuBarIconUsesFullOpacityTemplatePixels() throws {
+    let image = IconFactory.menuBarIcon(state: .connected)
     let alphas = try renderedAlphaValues(from: image)
 
     #expect(alphas.max() == 255)
+}
+
+@MainActor
+@Test func disconnectedMenuBarIconUsesReducedOpacityTemplatePixels() throws {
+    let image = IconFactory.menuBarIcon(state: .disconnected)
+    let alphas = try renderedAlphaValues(from: image)
+
+    #expect((alphas.max() ?? 0) < 180)
+    #expect((alphas.max() ?? 0) > 0)
 }
 
 @MainActor
