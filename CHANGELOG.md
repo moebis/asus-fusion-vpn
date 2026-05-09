@@ -4,6 +4,12 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [1.0.3] - 2026-05-09
+
+### Fixed
+
+- Restore visible menu bar icon nodes while preserving one-pass inactive opacity so nodes do not show transparent overlaps with the connecting lines.
+
 ## [1.0.2] - 2026-05-09
 
 ### Fixed

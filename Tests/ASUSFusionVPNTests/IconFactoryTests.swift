@@ -29,7 +29,22 @@ import Testing
 }
 
 @MainActor
+@Test func connectedMenuBarIconIncludesNodePads() throws {
+    let image = IconFactory.menuBarIcon(state: .connected)
+    let alphaGrid = try renderedAlphaGrid(from: image)
+
+    #expect(opaquePixelCount(in: alphaGrid, centerX: 5, centerY: 15) >= 16)
+    #expect(opaquePixelCount(in: alphaGrid, centerX: 10, centerY: 4) >= 16)
+    #expect(opaquePixelCount(in: alphaGrid, centerX: 15, centerY: 15) >= 16)
+}
+
+@MainActor
 private func renderedAlphaValues(from image: NSImage) throws -> [Int] {
+    try renderedAlphaGrid(from: image).flatMap { $0 }
+}
+
+@MainActor
+private func renderedAlphaGrid(from image: NSImage) throws -> [[Int]] {
     let size = NSSize(width: 20, height: 20)
     guard
         let representation = NSBitmapImageRep(
@@ -53,10 +68,19 @@ private func renderedAlphaValues(from image: NSImage) throws -> [Int] {
     image.draw(in: NSRect(origin: .zero, size: size))
     NSGraphicsContext.restoreGraphicsState()
 
-    return (0..<Int(size.width)).flatMap { x in
-        (0..<Int(size.height)).compactMap { y in
+    return (0..<Int(size.height)).map { y in
+        (0..<Int(size.width)).compactMap { x in
             representation.colorAt(x: x, y: y).map { Int(round($0.alphaComponent * 255)) }
         }
+    }
+}
+
+private func opaquePixelCount(in alphaGrid: [[Int]], centerX: Int, centerY: Int) -> Int {
+    let yRange = max(0, centerY - 2)...min(alphaGrid.count - 1, centerY + 2)
+    let xRange = max(0, centerX - 2)...min((alphaGrid.first?.count ?? 1) - 1, centerX + 2)
+
+    return yRange.reduce(0) { count, y in
+        count + xRange.filter { alphaGrid[y][$0] > 240 }.count
     }
 }
 

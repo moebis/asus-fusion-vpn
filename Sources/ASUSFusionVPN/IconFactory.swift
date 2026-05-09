@@ -26,20 +26,28 @@ enum IconFactory {
 
     private static func drawShape(in rect: NSRect) {
         let points = [
-            NSPoint(x: rect.minX + 5.0, y: rect.minY + 4.4),
+            NSPoint(x: rect.minX + 4.7, y: rect.minY + 4.2),
             NSPoint(x: rect.midX, y: rect.maxY - 4.2),
-            NSPoint(x: rect.maxX - 5.0, y: rect.minY + 4.4)
+            NSPoint(x: rect.maxX - 4.7, y: rect.minY + 4.2)
         ]
 
         NSColor.black.setStroke()
+        NSColor.black.setFill()
+
         let path = NSBezierPath()
-        path.lineWidth = 2.8
+        path.lineWidth = 2.1
         path.lineCapStyle = .round
         path.lineJoinStyle = .round
         path.move(to: points[0])
         path.line(to: points[1])
         path.line(to: points[2])
         path.stroke()
+
+        for point in points {
+            NSBezierPath(
+                ovalIn: NSRect(x: point.x - 2.7, y: point.y - 2.7, width: 5.4, height: 5.4)
+            ).fill()
+        }
     }
 
     private static func opacity(for state: VPNConnectionState) -> CGFloat {
