@@ -5,6 +5,55 @@ private enum RouterTaskResult: Sendable {
     case failure(String)
 }
 
+private final class MenuActionRowView: NSView {
+    let button: NSButton
+    private let shortcutField: NSTextField
+
+    var isEnabled: Bool {
+        get { button.isEnabled }
+        set {
+            button.isEnabled = newValue
+            button.contentTintColor = newValue ? .labelColor : .disabledControlTextColor
+            shortcutField.textColor = newValue ? .tertiaryLabelColor : .disabledControlTextColor
+        }
+    }
+
+    init(title: String, shortcut: String) {
+        button = NSButton(title: title, target: nil, action: nil)
+        shortcutField = NSTextField(labelWithString: shortcut)
+        super.init(frame: NSRect(x: 0, y: 0, width: 360, height: 28))
+
+        button.isBordered = false
+        button.bezelStyle = .regularSquare
+        button.alignment = .left
+        button.font = .menuFont(ofSize: 0)
+        button.contentTintColor = .labelColor
+        button.translatesAutoresizingMaskIntoConstraints = false
+
+        shortcutField.font = .menuFont(ofSize: 0)
+        shortcutField.textColor = .tertiaryLabelColor
+        shortcutField.alignment = .right
+        shortcutField.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(button)
+        addSubview(shortcutField)
+
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            button.topAnchor.constraint(equalTo: topAnchor),
+            button.bottomAnchor.constraint(equalTo: bottomAnchor),
+            button.trailingAnchor.constraint(equalTo: shortcutField.leadingAnchor, constant: -12),
+            shortcutField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            shortcutField.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
 @MainActor
 final class MenuBarController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -18,7 +67,8 @@ final class MenuBarController: NSObject {
     private let routerCPUMenuItem = NSMenuItem(title: "Router CPU: Checking...", action: nil, keyEquivalent: "")
     private let routerMemoryMenuItem = NSMenuItem(title: "Router Memory: Checking...", action: nil, keyEquivalent: "")
     private let toggleMenuItem = NSMenuItem(title: "Connect", action: #selector(toggleVPN), keyEquivalent: "")
-    private let refreshMenuItem = NSMenuItem(title: "Refresh Status", action: #selector(refreshStatus), keyEquivalent: "r")
+    private let refreshMenuItem = NSMenuItem()
+    private let refreshMenuView = MenuActionRowView(title: "Refresh Status", shortcut: "⌘ R")
     private var settingsWindowController: SettingsWindowController?
     private var timer: Timer?
     private var settings = AppSettings.load()
@@ -53,7 +103,9 @@ final class MenuBarController: NSObject {
     private func configureMenu() {
         menu.autoenablesItems = false
         toggleMenuItem.target = self
-        refreshMenuItem.target = self
+        refreshMenuView.button.target = self
+        refreshMenuView.button.action = #selector(refreshStatusFromOpenMenu)
+        refreshMenuItem.view = refreshMenuView
         [
             wanIPMenuItem,
             wanLocationMenuItem,
@@ -98,6 +150,10 @@ final class MenuBarController: NSObject {
         runRouterTask(busyTitle: "Status: Checking...") { client in
             try client.status()
         }
+    }
+
+    @objc private func refreshStatusFromOpenMenu() {
+        refreshStatus()
     }
 
     @objc private func toggleVPN() {
@@ -167,7 +223,7 @@ final class MenuBarController: NSObject {
         isBusy = true
         setPlainStatusTitle(busyTitle)
         toggleMenuItem.isEnabled = false
-        refreshMenuItem.isEnabled = false
+        refreshMenuView.isEnabled = false
         statusItem.button?.image = IconFactory.menuBarIcon(state: .connecting)
 
         let currentSettings = settings
@@ -189,7 +245,7 @@ final class MenuBarController: NSObject {
     private func handle(result: RouterTaskResult) {
         isBusy = false
         toggleMenuItem.isEnabled = true
-        refreshMenuItem.isEnabled = true
+        refreshMenuView.isEnabled = true
 
         switch result {
         case .success(let status):

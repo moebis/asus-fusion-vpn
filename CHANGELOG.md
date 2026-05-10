@@ -4,6 +4,12 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [1.0.6] - 2026-05-10
+
+### Fixed
+
+- Keep the menu open when clicking `Refresh Status` by rendering refresh as an in-menu control instead of a standard closing menu command.
+
 ## [1.0.5] - 2026-05-10
 
 ### Added
