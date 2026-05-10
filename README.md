@@ -125,8 +125,9 @@ Set:
 - `Profile Name`: the VPN Fusion profile name shown in the router UI.
 - `VPN Unit`: the ASUS VPN Fusion unit number for that profile. Use `Find...` to discover it from the router.
 - `Region`: Surfshark endpoint to write into the WireGuard profile when connecting.
+- `Show IP location details`: when enabled, the app asks the router to fetch display-only IP location labels.
 
-Settings are stored in the app's macOS preferences via `UserDefaults`. This intentionally avoids repeated Keychain prompts for unsigned local builds, but it is less secure than Keychain storage. Treat the Mac user account as trusted if you save a router password here.
+The router password is stored in macOS Keychain. Non-secret settings such as router host, SSH port, username, profile name, VPN unit, region, favorites, and location-display preference are stored in the app's macOS preferences. If you used an older build, the app migrates the saved router password out of preferences and removes the legacy preference value after the Keychain save succeeds.
 
 ## Finding the VPN Unit
 
@@ -153,7 +154,15 @@ In this example, the VPN unit is `5`. ASUSWRT stores profile data as `>` separat
 
 ## Router Behavior
 
-The app reads router state with SSH commands that inspect ASUSWRT `nvram`, the `wgc<unit>` WireGuard interface, route table `5`, policy rules, and optional `ipinfo.io` responses for display-only location labels.
+The app reads router state with SSH commands that inspect ASUSWRT `nvram`, the `wgc<unit>` WireGuard interface, the route table matching the configured VPN unit, policy rules, and optional `ipinfo.io` responses for display-only location labels.
+
+The app keeps its own SSH `known_hosts` file under macOS Application Support and pins the router host key there after the first successful connection. This keeps the app from modifying your personal SSH `known_hosts` file. Like normal SSH trust-on-first-use, the very first connection assumes your LAN is trustworthy. If you want to verify the router key before first use, run:
+
+```zsh
+ssh-keyscan -p 22 192.168.1.1 | ssh-keygen -lf -
+```
+
+Replace `22` and `192.168.1.1` with your router SSH port and LAN address, then compare the fingerprint to a fingerprint gathered from a trusted router administration session.
 
 When connecting, it:
 
@@ -213,7 +222,8 @@ dist/
 - `Open Settings and enter the router username and password.`: credentials have not been saved yet.
 - SSH connection fails: confirm SSH is enabled for LAN access on the router, the Mac is on the same local network, and the app's `SSH Port` matches the router's SSH port.
 - Status stays `Connecting`: the profile is active, but the app has not seen a fresh WireGuard handshake and live runtime state yet.
-- Router status works but location is unavailable: the router may not be able to reach `ipinfo.io`, or `curl` may not be available on the router.
+- Router status works but location is unavailable: the router may not be able to reach `ipinfo.io`, `curl` may not be available on the router, or `Show IP location details` may be turned off.
+- Saving settings fails with a Keychain error: unlock the Mac login keychain, relaunch the app, and save settings again.
 - Build errors mention the old project path: run `swift package clean` and build again. This can happen after copying the project to a new folder.
 - App cannot control the profile: confirm the VPN Fusion unit number matches the router profile and review the generated router commands.
 
@@ -225,7 +235,8 @@ This app is intentionally small and local:
 - It does not expose a local HTTP server.
 - It does not run a separate daemon.
 - It connects to Surfshark's public cluster API to refresh region choices.
-- It asks the router to call `ipinfo.io` for display-only IP/location labels.
+- If `Show IP location details` is enabled, it asks the router to call `ipinfo.io` for display-only IP/location labels.
+- It stores the router password in macOS Keychain and removes the legacy saved-password preference from older app builds after migration.
 
 The app changes router VPN state over SSH. Use it only with a router and profile you control.
 

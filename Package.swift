@@ -15,7 +15,8 @@ let package = Package(
             name: "ASUSFusionVPN",
             path: "Sources/ASUSFusionVPN",
             linkerSettings: [
-                .linkedFramework("AppKit")
+                .linkedFramework("AppKit"),
+                .linkedFramework("Security")
             ]
         ),
         .testTarget(

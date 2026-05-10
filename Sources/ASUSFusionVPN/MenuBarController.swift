@@ -279,7 +279,7 @@ final class MenuBarController: NSObject {
         }
 
         settings.selectedRegionPublicKey = selectedRegion.publicKey
-        settings.save()
+        settings.saveNonSecretSettings()
     }
 
     private func updateNetworkItems(for status: VPNStatus?) {

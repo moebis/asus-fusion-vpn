@@ -13,6 +13,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let findVPNUnitButton = NSButton()
     private let regionPopup = NSPopUpButton()
     private let favoriteRegionButton = NSButton()
+    private let showIPLocationsButton = NSButton(checkboxWithTitle: "Show IP location details", target: nil, action: nil)
     private let onSave: @MainActor (AppSettings) -> Void
     private var regions: [VPNRegion]
     private var selectedRegionEndpoint: String
@@ -30,14 +31,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         self.favoriteRegionEndpoints = settings.favoriteRegionEndpoints
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 372),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 406),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.title = "ASUS Fusion VPN Settings"
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 620, height: 372)
+        window.contentMinSize = NSSize(width: 620, height: 406)
 
         super.init(window: window)
         window.delegate = self
@@ -70,6 +71,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         visiblePasswordField.stringValue = settings.password
         profileField.stringValue = settings.profileName
         unitField.stringValue = String(settings.vpnUnit)
+        showIPLocationsButton.state = settings.showIPLocations ? .on : .off
         configurePasswordVisibilityControls()
         configureVPNUnitControls()
         configureRegionControls()
@@ -88,7 +90,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             row("Password", passwordControl()),
             row("Profile Name", profileField),
             row("VPN Unit", vpnUnitControl()),
-            row("Region", regionControl())
+            row("Region", regionControl()),
+            row("", showIPLocationsButton)
         ])
         form.column(at: 0).xPlacement = .trailing
         form.column(at: 0).width = 112
@@ -411,21 +414,23 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func findVPNUnit() {
-        let routerHost = routerHostField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let username = usernameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let routerHost: String
+        let username: String
         let profileName = profileField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let password = currentPassword()
-        let sshPort = Int(portField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 22
+        let password: String
+        let sshPort: Int
 
-        guard !routerHost.isEmpty, !username.isEmpty, !password.isEmpty else {
-            showAlert(
-                title: "Could not find VPN unit",
-                message: "Router host, username, and password are required before searching."
-            )
+        do {
+            routerHost = try AppSettingsValidator.validatedHost(routerHostField.stringValue)
+            username = try AppSettingsValidator.validatedUsername(usernameField.stringValue)
+            password = try AppSettingsValidator.validatedPassword(currentPassword())
+            sshPort = try AppSettingsValidator.validatedPort(portField.stringValue)
+        } catch {
+            showAlert(title: "Could not find VPN unit", message: error.localizedDescription)
             return
         }
 
-        let currentUnit = Int(unitField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) ?? AppSettings.defaultVPNUnit
+        let currentUnit = (try? AppSettingsValidator.validatedVPNUnit(unitField.stringValue)) ?? AppSettings.defaultVPNUnit
         let settings = AppSettings(
             routerHost: routerHost,
             sshPort: sshPort,
@@ -435,7 +440,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             vpnUnit: currentUnit,
             selectedRegionEndpoint: selectedRegionEndpoint,
             selectedRegionPublicKey: selectedRegionPublicKey,
-            favoriteRegionEndpoints: favoriteRegionEndpoints
+            favoriteRegionEndpoints: favoriteRegionEndpoints,
+            showIPLocations: showIPLocationsButton.state == .on
         )
 
         setVPNUnitSearchInProgress(true)
@@ -534,16 +540,23 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func save() {
-        let routerHost = routerHostField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let username = usernameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let profileName = profileField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let password = currentPassword()
-        let sshPort = Int(portField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 22
-        let vpnUnit = Int(unitField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) ?? AppSettings.defaultVPNUnit
+        let routerHost: String
+        let username: String
+        let profileName: String
+        let password: String
+        let sshPort: Int
+        let vpnUnit: Int
         updateSelectedRegionFromPopup()
 
-        guard !routerHost.isEmpty, !username.isEmpty, !password.isEmpty, !profileName.isEmpty else {
-            showAlert(message: "Router host, username, password, and profile name are required.")
+        do {
+            routerHost = try AppSettingsValidator.validatedHost(routerHostField.stringValue)
+            username = try AppSettingsValidator.validatedUsername(usernameField.stringValue)
+            profileName = try AppSettingsValidator.validatedProfileName(profileField.stringValue)
+            password = try AppSettingsValidator.validatedPassword(currentPassword())
+            sshPort = try AppSettingsValidator.validatedPort(portField.stringValue)
+            vpnUnit = try AppSettingsValidator.validatedVPNUnit(unitField.stringValue)
+        } catch {
+            showAlert(message: error.localizedDescription)
             return
         }
 
@@ -556,9 +569,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             vpnUnit: vpnUnit,
             selectedRegionEndpoint: selectedRegionEndpoint,
             selectedRegionPublicKey: selectedRegionPublicKey,
-            favoriteRegionEndpoints: favoriteRegionEndpoints
+            favoriteRegionEndpoints: favoriteRegionEndpoints,
+            showIPLocations: showIPLocationsButton.state == .on
         )
-        settings.save()
+        do {
+            try settings.save()
+        } catch {
+            showAlert(message: "Could not save the router password in Keychain: \(error.localizedDescription)")
+            return
+        }
 
         onSave(settings)
         close()

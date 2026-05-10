@@ -4,6 +4,25 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [1.0.4] - 2026-05-10
+
+### Added
+
+- Add a Settings checkbox to disable display-only IP geolocation lookups from the router.
+- Add validation for router host, SSH username, SSH port, and VPN unit settings.
+
+### Changed
+
+- Store router passwords in macOS Keychain and migrate legacy saved passwords out of app preferences.
+- Send the router password to the SSH helper through standard input instead of a child-process environment variable.
+- Use an app-specific SSH `known_hosts` file under Application Support for host key pinning after first connection.
+- Check VPN policy rules and routes against the configured VPN unit instead of hard-coding route table `5`.
+
+### Fixed
+
+- Reject invalid SSH port and VPN unit values before saving settings or running the VPN Unit finder.
+- Remove an unused SSH argument helper now that the app uses the expect-based SSH path.
+
 ## [1.0.3] - 2026-05-09
 
 ### Fixed
@@ -38,5 +57,5 @@ This project uses semantic versioning for public releases.
 
 ### Security
 
-- Router credentials are stored in app preferences for unsigned local builds; the README documents this tradeoff.
+- Router credentials were stored in app preferences for unsigned local builds; the README documented this tradeoff.
 - README screenshots redact local router details, usernames, IP addresses, and location data.

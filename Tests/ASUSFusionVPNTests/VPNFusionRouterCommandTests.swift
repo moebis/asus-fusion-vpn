@@ -38,3 +38,20 @@ import Testing
     #expect(!commands.contains { $0.contains("wgc5_ppub") })
     #expect(commands.contains("service stop_vpnc"))
 }
+
+@Test func statusCommandUsesConfiguredRouteTable() {
+    let command = SSHRouterClient.statusCommand(unit: 7, includeIPLocations: true)
+
+    #expect(command.contains("lookup 7"))
+    #expect(command.contains("table 7"))
+    #expect(!command.contains("lookup 5"))
+    #expect(!command.contains("table 5"))
+}
+
+@Test func statusCommandOmitsIPInfoWhenLocationDetailsAreDisabled() {
+    let command = SSHRouterClient.statusCommand(unit: 5, includeIPLocations: false)
+
+    #expect(!command.contains("ipinfo.io"))
+    #expect(!command.contains("WAN_IPINFO_BEGIN"))
+    #expect(!command.contains("VPN_IPINFO_BEGIN"))
+}
