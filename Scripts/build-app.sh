@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="ASUS Fusion VPN"
-APP_VERSION="1.0.6"
-APP_BUILD="7"
+APP_VERSION="1.0.7"
+APP_BUILD="8"
 BUILD_DIR="$ROOT_DIR/.build/apple/Products/Release"
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/$APP_NAME.app"

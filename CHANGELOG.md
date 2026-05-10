@@ -4,6 +4,13 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [1.0.7] - 2026-05-10
+
+### Changed
+
+- Move the connect/disconnect action directly under the status line and render it as a button.
+- Move `Refresh Status` under `Open Router VPN Page`, align the custom refresh row with the settings section, and add `Command-O` for opening the router VPN page.
+
 ## [1.0.6] - 2026-05-10
 
 ### Fixed

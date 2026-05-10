@@ -6,8 +6,23 @@ private enum RouterTaskResult: Sendable {
 }
 
 private final class MenuActionRowView: NSView {
+    enum Style {
+        case plain
+        case button
+    }
+
+    private static let rowWidth: CGFloat = 420
+    private static let plainRowHeight: CGFloat = 28
+    private static let buttonRowHeight: CGFloat = 34
+
     let button: NSButton
     private let shortcutField: NSTextField
+    private let style: Style
+
+    var title: String {
+        get { button.title }
+        set { button.title = newValue }
+    }
 
     var isEnabled: Bool {
         get { button.isEnabled }
@@ -18,14 +33,22 @@ private final class MenuActionRowView: NSView {
         }
     }
 
-    init(title: String, shortcut: String) {
+    init(
+        title: String,
+        shortcut: String = "",
+        style: Style = .plain,
+        leadingInset: CGFloat? = nil
+    ) {
+        self.style = style
         button = NSButton(title: title, target: nil, action: nil)
         shortcutField = NSTextField(labelWithString: shortcut)
-        super.init(frame: NSRect(x: 0, y: 0, width: 360, height: 28))
+        let rowHeight = style == .button ? Self.buttonRowHeight : Self.plainRowHeight
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.rowWidth, height: rowHeight))
+        let resolvedLeadingInset = leadingInset ?? (style == .button ? 14 : 38)
 
-        button.isBordered = false
-        button.bezelStyle = .regularSquare
-        button.alignment = .left
+        button.isBordered = style == .button
+        button.bezelStyle = style == .button ? .rounded : .regularSquare
+        button.alignment = style == .button ? .center : .left
         button.font = .menuFont(ofSize: 0)
         button.contentTintColor = .labelColor
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -38,14 +61,31 @@ private final class MenuActionRowView: NSView {
         addSubview(button)
         addSubview(shortcutField)
 
-        NSLayoutConstraint.activate([
-            button.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            button.topAnchor.constraint(equalTo: topAnchor),
-            button.bottomAnchor.constraint(equalTo: bottomAnchor),
-            button.trailingAnchor.constraint(equalTo: shortcutField.leadingAnchor, constant: -12),
+        if shortcut.isEmpty {
+            shortcutField.isHidden = true
+        }
+
+        var constraints = [
+            button.leadingAnchor.constraint(equalTo: leadingAnchor, constant: resolvedLeadingInset),
             shortcutField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
             shortcutField.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
+        ]
+
+        if style == .button {
+            constraints.append(contentsOf: [
+                button.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+                button.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+                button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18)
+            ])
+        } else {
+            constraints.append(contentsOf: [
+                button.topAnchor.constraint(equalTo: topAnchor),
+                button.bottomAnchor.constraint(equalTo: bottomAnchor),
+                button.trailingAnchor.constraint(equalTo: shortcutField.leadingAnchor, constant: -12)
+            ])
+        }
+
+        NSLayoutConstraint.activate(constraints)
     }
 
     @available(*, unavailable)
@@ -66,9 +106,10 @@ final class MenuBarController: NSObject {
     private let vpnLocationMenuItem = NSMenuItem(title: "VPN Location: Checking...", action: nil, keyEquivalent: "")
     private let routerCPUMenuItem = NSMenuItem(title: "Router CPU: Checking...", action: nil, keyEquivalent: "")
     private let routerMemoryMenuItem = NSMenuItem(title: "Router Memory: Checking...", action: nil, keyEquivalent: "")
-    private let toggleMenuItem = NSMenuItem(title: "Connect", action: #selector(toggleVPN), keyEquivalent: "")
+    private let toggleMenuItem = NSMenuItem()
+    private let toggleMenuView = MenuActionRowView(title: "Connect", style: .button)
     private let refreshMenuItem = NSMenuItem()
-    private let refreshMenuView = MenuActionRowView(title: "Refresh Status", shortcut: "⌘ R")
+    private let refreshMenuView = MenuActionRowView(title: "Refresh Status", shortcut: "⌘ R", leadingInset: 38)
     private var settingsWindowController: SettingsWindowController?
     private var timer: Timer?
     private var settings = AppSettings.load()
@@ -102,10 +143,17 @@ final class MenuBarController: NSObject {
 
     private func configureMenu() {
         menu.autoenablesItems = false
-        toggleMenuItem.target = self
+        toggleMenuView.title = "Connect \(settings.profileName)"
+        toggleMenuView.button.target = self
+        toggleMenuView.button.action = #selector(toggleVPN)
+        toggleMenuItem.view = toggleMenuView
         refreshMenuView.button.target = self
         refreshMenuView.button.action = #selector(refreshStatusFromOpenMenu)
         refreshMenuItem.view = refreshMenuView
+        refreshMenuItem.target = self
+        refreshMenuItem.action = #selector(refreshStatusFromOpenMenu)
+        refreshMenuItem.keyEquivalent = "r"
+        refreshMenuItem.keyEquivalentModifierMask = .command
         [
             wanIPMenuItem,
             wanLocationMenuItem,
@@ -121,13 +169,14 @@ final class MenuBarController: NSObject {
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
 
-        let routerItem = NSMenuItem(title: "Open Router VPN Page", action: #selector(openRouterPage), keyEquivalent: "")
+        let routerItem = NSMenuItem(title: "Open Router VPN Page", action: #selector(openRouterPage), keyEquivalent: "o")
         routerItem.target = self
 
         let quitItem = NSMenuItem(title: "Quit ASUS Fusion VPN", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
 
         menu.addItem(statusMenuItem)
+        menu.addItem(toggleMenuItem)
         menu.addItem(wanIPMenuItem)
         menu.addItem(wanLocationMenuItem)
         menu.addItem(vpnTunnelIPMenuItem)
@@ -137,11 +186,9 @@ final class MenuBarController: NSObject {
         menu.addItem(routerCPUMenuItem)
         menu.addItem(routerMemoryMenuItem)
         menu.addItem(.separator())
-        menu.addItem(toggleMenuItem)
-        menu.addItem(refreshMenuItem)
-        menu.addItem(.separator())
         menu.addItem(settingsItem)
         menu.addItem(routerItem)
+        menu.addItem(refreshMenuItem)
         menu.addItem(.separator())
         menu.addItem(quitItem)
     }
@@ -222,7 +269,7 @@ final class MenuBarController: NSObject {
         cancelFollowUpRefresh()
         isBusy = true
         setPlainStatusTitle(busyTitle)
-        toggleMenuItem.isEnabled = false
+        toggleMenuView.isEnabled = false
         refreshMenuView.isEnabled = false
         statusItem.button?.image = IconFactory.menuBarIcon(state: .connecting)
 
@@ -244,7 +291,7 @@ final class MenuBarController: NSObject {
 
     private func handle(result: RouterTaskResult) {
         isBusy = false
-        toggleMenuItem.isEnabled = true
+        toggleMenuView.isEnabled = true
         refreshMenuView.isEnabled = true
 
         switch result {
@@ -257,7 +304,7 @@ final class MenuBarController: NSObject {
             lastStatus = nil
             setPlainStatusTitle("Status: Error")
             updateNetworkItems(for: nil)
-            toggleMenuItem.title = "Connect"
+            toggleMenuView.title = "Connect \(settings.profileName)"
             statusItem.button?.image = IconFactory.menuBarIcon(state: .unknown)
             showError(message)
         }
@@ -287,7 +334,7 @@ final class MenuBarController: NSObject {
     private func updateMenu(for status: VPNStatus) {
         setStatusTitle(for: status)
         updateNetworkItems(for: status)
-        toggleMenuItem.title = status.state == .connected ? "Disconnect \(settings.profileName)" : "Connect \(settings.profileName)"
+        toggleMenuView.title = status.state == .connected ? "Disconnect \(settings.profileName)" : "Connect \(settings.profileName)"
         statusItem.button?.image = IconFactory.menuBarIcon(state: status.state)
         statusItem.button?.toolTip = "ASUS Fusion VPN - \(status.state.displayName)"
     }
