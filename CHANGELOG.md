@@ -4,6 +4,13 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [1.0.9] - 2026-05-10
+
+### Fixed
+
+- Align the custom `Command-R` shortcut with the native menu shortcut column.
+- Stop automatic status refreshes from flashing the menu bar icon into the bright in-progress state when the VPN state has not changed.
+
 ## [1.0.8] - 2026-05-10
 
 ### Changed

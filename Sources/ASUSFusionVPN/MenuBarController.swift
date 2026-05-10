@@ -83,7 +83,7 @@ private final class MenuActionRowView: NSView {
 
         var constraints = [
             button.leadingAnchor.constraint(equalTo: leadingAnchor, constant: resolvedLeadingInset),
-            shortcutField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            shortcutField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -30),
             shortcutField.centerYAnchor.constraint(equalTo: centerYAnchor)
         ]
 
@@ -251,13 +251,16 @@ final class MenuBarController: NSObject {
 
     @objc private func toggleVPN() {
         let shouldConnect = lastStatus?.state != .connected
-        runRouterTask(busyTitle: shouldConnect ? "Status: Connecting..." : "Status: Disconnecting...") { client in
+        runRouterTask(
+            busyTitle: shouldConnect ? "Status: Connecting..." : "Status: Disconnecting...",
+            busyIconState: .connecting
+        ) { client in
             try client.setEnabled(shouldConnect)
         }
     }
 
     private func reconnectVPNForRegionChange() {
-        runRouterTask(busyTitle: "Status: Switching Region...") { client in
+        runRouterTask(busyTitle: "Status: Switching Region...", busyIconState: .connecting) { client in
             _ = try client.setEnabled(false)
             return try client.setEnabled(true)
         }
@@ -310,14 +313,20 @@ final class MenuBarController: NSObject {
         NSApp.terminate(nil)
     }
 
-    private func runRouterTask(busyTitle: String, task: @Sendable @escaping (SSHRouterClient) throws -> VPNStatus) {
+    private func runRouterTask(
+        busyTitle: String,
+        busyIconState: VPNConnectionState? = nil,
+        task: @Sendable @escaping (SSHRouterClient) throws -> VPNStatus
+    ) {
         guard !isBusy else { return }
         cancelFollowUpRefresh()
         isBusy = true
         setPlainStatusTitle(busyTitle)
         toggleMenuView.isEnabled = false
         refreshMenuView.isEnabled = false
-        statusItem.button?.image = IconFactory.menuBarIcon(state: .connecting)
+        if let busyIconState {
+            statusItem.button?.image = IconFactory.menuBarIcon(state: busyIconState)
+        }
 
         let currentSettings = settings
 
