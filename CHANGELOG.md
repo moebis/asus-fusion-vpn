@@ -4,6 +4,14 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [1.0.8] - 2026-05-10
+
+### Changed
+
+- Move the connect/disconnect button above the Surfshark status line.
+- Color the connect button green and the disconnect button red.
+- Widen the custom menu rows and move the `Command-R` shortcut further right to line up with native shortcuts.
+
 ## [1.0.7] - 2026-05-10
 
 ### Changed

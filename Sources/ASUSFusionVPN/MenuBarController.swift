@@ -11,24 +11,34 @@ private final class MenuActionRowView: NSView {
         case button
     }
 
-    private static let rowWidth: CGFloat = 420
+    private static let rowWidth: CGFloat = 452
     private static let plainRowHeight: CGFloat = 28
-    private static let buttonRowHeight: CGFloat = 34
+    private static let buttonRowHeight: CGFloat = 44
 
     let button: NSButton
     private let shortcutField: NSTextField
     private let style: Style
+    private var buttonBackgroundColor: NSColor?
 
     var title: String {
         get { button.title }
-        set { button.title = newValue }
+        set {
+            button.title = newValue
+            updateButtonTitle()
+        }
     }
 
     var isEnabled: Bool {
         get { button.isEnabled }
         set {
             button.isEnabled = newValue
-            button.contentTintColor = newValue ? .labelColor : .disabledControlTextColor
+            if style == .button {
+                button.contentTintColor = newValue ? .white : .disabledControlTextColor
+                updateButtonBackground()
+                updateButtonTitle()
+            } else {
+                button.contentTintColor = newValue ? .labelColor : .disabledControlTextColor
+            }
             shortcutField.textColor = newValue ? .tertiaryLabelColor : .disabledControlTextColor
         }
     }
@@ -44,14 +54,20 @@ private final class MenuActionRowView: NSView {
         shortcutField = NSTextField(labelWithString: shortcut)
         let rowHeight = style == .button ? Self.buttonRowHeight : Self.plainRowHeight
         super.init(frame: NSRect(x: 0, y: 0, width: Self.rowWidth, height: rowHeight))
-        let resolvedLeadingInset = leadingInset ?? (style == .button ? 14 : 38)
+        let resolvedLeadingInset = leadingInset ?? (style == .button ? 12 : 38)
 
-        button.isBordered = style == .button
-        button.bezelStyle = style == .button ? .rounded : .regularSquare
+        button.isBordered = false
+        button.bezelStyle = .regularSquare
         button.alignment = style == .button ? .center : .left
         button.font = .menuFont(ofSize: 0)
-        button.contentTintColor = .labelColor
+        button.contentTintColor = style == .button ? .white : .labelColor
         button.translatesAutoresizingMaskIntoConstraints = false
+        if style == .button {
+            button.wantsLayer = true
+            button.layer?.cornerRadius = 8
+            button.layer?.masksToBounds = true
+            updateButtonTitle()
+        }
 
         shortcutField.font = .menuFont(ofSize: 0)
         shortcutField.textColor = .tertiaryLabelColor
@@ -67,7 +83,7 @@ private final class MenuActionRowView: NSView {
 
         var constraints = [
             button.leadingAnchor.constraint(equalTo: leadingAnchor, constant: resolvedLeadingInset),
-            shortcutField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            shortcutField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             shortcutField.centerYAnchor.constraint(equalTo: centerYAnchor)
         ]
 
@@ -75,7 +91,7 @@ private final class MenuActionRowView: NSView {
             constraints.append(contentsOf: [
                 button.topAnchor.constraint(equalTo: topAnchor, constant: 4),
                 button.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-                button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18)
+                button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12)
             ])
         } else {
             constraints.append(contentsOf: [
@@ -86,6 +102,35 @@ private final class MenuActionRowView: NSView {
         }
 
         NSLayoutConstraint.activate(constraints)
+    }
+
+    func setButtonBackground(_ color: NSColor) {
+        buttonBackgroundColor = color
+        updateButtonBackground()
+    }
+
+    private func updateButtonBackground() {
+        guard style == .button else {
+            return
+        }
+
+        let baseColor = buttonBackgroundColor ?? .controlAccentColor
+        let color = button.isEnabled ? baseColor : baseColor.withAlphaComponent(0.35)
+        button.layer?.backgroundColor = color.cgColor
+    }
+
+    private func updateButtonTitle() {
+        guard style == .button else {
+            return
+        }
+
+        button.attributedTitle = NSAttributedString(
+            string: button.title,
+            attributes: [
+                .font: NSFont.menuFont(ofSize: 0),
+                .foregroundColor: button.isEnabled ? NSColor.white : NSColor.disabledControlTextColor
+            ]
+        )
     }
 
     @available(*, unavailable)
@@ -144,6 +189,7 @@ final class MenuBarController: NSObject {
     private func configureMenu() {
         menu.autoenablesItems = false
         toggleMenuView.title = "Connect \(settings.profileName)"
+        toggleMenuView.setButtonBackground(.systemGreen)
         toggleMenuView.button.target = self
         toggleMenuView.button.action = #selector(toggleVPN)
         toggleMenuItem.view = toggleMenuView
@@ -175,8 +221,8 @@ final class MenuBarController: NSObject {
         let quitItem = NSMenuItem(title: "Quit ASUS Fusion VPN", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
 
-        menu.addItem(statusMenuItem)
         menu.addItem(toggleMenuItem)
+        menu.addItem(statusMenuItem)
         menu.addItem(wanIPMenuItem)
         menu.addItem(wanLocationMenuItem)
         menu.addItem(vpnTunnelIPMenuItem)
@@ -305,6 +351,7 @@ final class MenuBarController: NSObject {
             setPlainStatusTitle("Status: Error")
             updateNetworkItems(for: nil)
             toggleMenuView.title = "Connect \(settings.profileName)"
+            toggleMenuView.setButtonBackground(.systemGreen)
             statusItem.button?.image = IconFactory.menuBarIcon(state: .unknown)
             showError(message)
         }
@@ -335,6 +382,7 @@ final class MenuBarController: NSObject {
         setStatusTitle(for: status)
         updateNetworkItems(for: status)
         toggleMenuView.title = status.state == .connected ? "Disconnect \(settings.profileName)" : "Connect \(settings.profileName)"
+        toggleMenuView.setButtonBackground(status.state == .connected ? .systemRed : .systemGreen)
         statusItem.button?.image = IconFactory.menuBarIcon(state: status.state)
         statusItem.button?.toolTip = "ASUS Fusion VPN - \(status.state.displayName)"
     }
