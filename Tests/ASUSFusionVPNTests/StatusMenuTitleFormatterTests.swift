@@ -75,6 +75,10 @@ private func testStatus(state: VPNConnectionState, tunnelIP: String?) -> VPNStat
         vpnEndpointIP: nil,
         vpnLocation: nil,
         policyRuleCount: 0,
-        vpnRouteCount: state == .connected ? 2 : 0
+        vpnRouteCount: state == .connected ? 2 : 0,
+        routerCPUPercent: nil,
+        routerMemoryUsedMB: nil,
+        routerMemoryTotalMB: nil,
+        routerMemoryPercent: nil
     )
 }

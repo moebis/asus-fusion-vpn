@@ -4,6 +4,17 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [1.0.5] - 2026-05-10
+
+### Added
+
+- Show router CPU and memory usage in a separate menu section.
+- Add a hard process timeout around SSH/expect command execution so hung router commands are terminated.
+
+### Changed
+
+- Collect router resource usage during the existing status refresh command instead of opening a separate SSH session.
+
 ## [1.0.4] - 2026-05-10
 
 ### Added

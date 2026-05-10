@@ -55,3 +55,12 @@ import Testing
     #expect(!command.contains("WAN_IPINFO_BEGIN"))
     #expect(!command.contains("VPN_IPINFO_BEGIN"))
 }
+
+@Test func statusCommandCollectsRouterResourceUsage() {
+    let command = SSHRouterClient.statusCommand(unit: 5, includeIPLocations: false)
+
+    #expect(command.contains("/proc/stat"))
+    #expect(command.contains("/proc/meminfo"))
+    #expect(command.contains("router_cpu_percent="))
+    #expect(command.contains("router_memory_percent="))
+}

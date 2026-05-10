@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 enum VPNConnectionState: String, Sendable {
@@ -32,9 +33,16 @@ struct VPNStatus: Sendable {
     let vpnLocation: String?
     let policyRuleCount: Int
     let vpnRouteCount: Int
+    let routerCPUPercent: Int?
+    let routerMemoryUsedMB: Int?
+    let routerMemoryTotalMB: Int?
+    let routerMemoryPercent: Int?
 }
 
 struct SSHRouterClient: Sendable {
+    private static let defaultProcessTimeout: TimeInterval = 45
+    private static let terminationGracePeriod: TimeInterval = 2
+
     let settings: AppSettings
 
     func status() throws -> VPNStatus {
@@ -70,6 +78,17 @@ struct SSHRouterClient: Sendable {
     }
 
     static func statusCommand(unit: Int, includeIPLocations: Bool) -> String {
+        let resourceUsageCommand = """
+        read_cpu_totals() { awk '/^cpu / { idle=$5+$6; total=0; for (i=2; i<=NF; i++) total += $i; printf "%d %d\\n", idle, total; exit }' /proc/stat; }; \
+        set -- $(read_cpu_totals); cpu_idle_1=${1:-0}; cpu_total_1=${2:-0}; \
+        sleep 1; \
+        set -- $(read_cpu_totals); cpu_idle_2=${1:-0}; cpu_total_2=${2:-0}; \
+        cpu_total_delta=$((cpu_total_2 - cpu_total_1)); \
+        cpu_idle_delta=$((cpu_idle_2 - cpu_idle_1)); \
+        if [ "$cpu_total_delta" -gt 0 ]; then echo router_cpu_percent=$(( (100 * (cpu_total_delta - cpu_idle_delta) + cpu_total_delta / 2) / cpu_total_delta )); else echo router_cpu_percent=0; fi; \
+        awk '/^MemTotal:/ { total=$2 } /^MemAvailable:/ { available=$2 } /^MemFree:/ { free=$2 } /^Buffers:/ { buffers=$2 } /^Cached:/ { cached=$2 } END { if (available == "") available = free + buffers + cached; if (total > 0) { used = total - available; if (used < 0) used = 0; used_mb = int((used + 512) / 1024); total_mb = int((total + 512) / 1024); percent = int(((used * 100) + (total / 2)) / total); printf "router_memory_used_mb=%d\\nrouter_memory_total_mb=%d\\nrouter_memory_percent=%d\\n", used_mb, total_mb, percent } }' /proc/meminfo;
+        """
+
         let ipInfoCommand: String
         if includeIPLocations {
             ipInfoCommand = """
@@ -99,6 +118,7 @@ struct SSHRouterClient: Sendable {
         echo router_epoch=$(date +%s); \
         echo vpn_latest_handshake=$(wg show wgc${unit} latest-handshakes 2>/dev/null | awk '{print $2; exit}'); \
         if ifconfig wgc${unit} >/tmp/asus_fusion_vpn_if 2>/dev/null; then echo interface_exists=1; if grep -q RUNNING /tmp/asus_fusion_vpn_if; then echo interface_running=1; else echo interface_running=0; fi; else echo interface_exists=0; echo interface_running=0; fi; \
+        \(resourceUsageCommand)
         \(ipInfoCommand)
         rm -f /tmp/asus_fusion_vpn_if
         """
@@ -142,6 +162,7 @@ struct SSHRouterClient: Sendable {
         expect {
           -re "(?i)are you sure.*yes/no.*" { send "yes\\r"; exp_continue }
           -re "(?i)password:" { send -- "$router_password\\r"; exp_continue }
+          timeout { catch close; catch wait result; exit 124 }
           eof
         }
         catch wait result
@@ -169,11 +190,12 @@ struct SSHRouterClient: Sendable {
         return directoryURL.appendingPathComponent("known_hosts").path
     }
 
-    private func runProcess(
+    func runProcess(
         executable: String,
         arguments: [String],
         environment: [String: String],
-        standardInput: String? = nil
+        standardInput: String? = nil,
+        processTimeout: TimeInterval = Self.defaultProcessTimeout
     ) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -188,13 +210,29 @@ struct SSHRouterClient: Sendable {
         if standardInput != nil {
             process.standardInput = inputPipe
         }
+        let terminationSemaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            terminationSemaphore.signal()
+        }
 
         try process.run()
         if let standardInput, let data = standardInput.data(using: .utf8) {
             inputPipe.fileHandleForWriting.write(data)
             try? inputPipe.fileHandleForWriting.close()
         }
-        process.waitUntilExit()
+
+        if terminationSemaphore.wait(timeout: .now() + processTimeout) == .timedOut {
+            process.terminate()
+            if terminationSemaphore.wait(timeout: .now() + Self.terminationGracePeriod) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = terminationSemaphore.wait(timeout: .now() + Self.terminationGracePeriod)
+            }
+
+            let formattedTimeout = processTimeout == floor(processTimeout)
+                ? "\(Int(processTimeout))"
+                : String(format: "%.1f", processTimeout)
+            throw SSHError(message: "SSH command timed out after \(formattedTimeout) seconds.")
+        }
 
         let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let error = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""

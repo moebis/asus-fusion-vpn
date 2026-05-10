@@ -24,7 +24,7 @@ The screenshots below intentionally redact local router details, usernames, IP a
 - Surfshark region picker backed by Surfshark's public cluster catalog.
 - Favorite regions sorted to the top of the region picker.
 - Region changes can reconnect an active VPN profile automatically.
-- Status details for Internet IP/location, WireGuard tunnel IP, VPN endpoint IP, and VPN location.
+- Status details for Internet IP/location, WireGuard tunnel IP, VPN endpoint IP, VPN location, router CPU, and router memory usage.
 - Settings window for router host, SSH port, username, password, profile name, VPN unit, and region.
 - No background daemon and no web server; the app only talks to the router when refreshing status or toggling the VPN.
 
@@ -35,7 +35,7 @@ The screenshots below intentionally redact local router details, usernames, IP a
 - An ASUSWRT router reachable from your Mac over LAN SSH.
 - SSH enabled on the router for LAN access.
 - A VPN Fusion WireGuard client profile already configured on the router.
-- Router shell tools used by the app commands: `nvram`, `service`, `ip`, `wg`, `ifconfig`, `nslookup`, and `curl`.
+- Router shell tools used by the app commands: `nvram`, `service`, `ip`, `wg`, `ifconfig`, `nslookup`, `awk`, and `curl`.
 - macOS `/usr/bin/ssh` and `/usr/bin/expect`.
 
 ## Defaults
@@ -154,7 +154,9 @@ In this example, the VPN unit is `5`. ASUSWRT stores profile data as `>` separat
 
 ## Router Behavior
 
-The app reads router state with SSH commands that inspect ASUSWRT `nvram`, the `wgc<unit>` WireGuard interface, the route table matching the configured VPN unit, policy rules, and optional `ipinfo.io` responses for display-only location labels.
+The app reads router state with SSH commands that inspect ASUSWRT `nvram`, the `wgc<unit>` WireGuard interface, the route table matching the configured VPN unit, policy rules, `/proc/stat`, `/proc/meminfo`, and optional `ipinfo.io` responses for display-only location labels.
+
+Each status refresh or VPN action opens a short-lived SSH process, runs one command batch, and exits. The app does not keep persistent SSH sessions open. The SSH helper has an expect timeout and the macOS process wrapper also enforces a hard timeout so a wedged router command does not leave the app waiting forever.
 
 The app keeps its own SSH `known_hosts` file under macOS Application Support and pins the router host key there after the first successful connection. This keeps the app from modifying your personal SSH `known_hosts` file. Like normal SSH trust-on-first-use, the very first connection assumes your LAN is trustworthy. If you want to verify the router key before first use, run:
 

@@ -59,7 +59,11 @@ enum VPNFusionParser {
             vpnEndpointIP: firstNonEmpty(values["vpn_endpoint_ip"], vpnInfo?.ip),
             vpnLocation: firstNonEmpty(vpnInfo?.displayLocation, locationFromEndpointHost(vpnEndpointHost)),
             policyRuleCount: policyRuleCount,
-            vpnRouteCount: vpnRouteCount
+            vpnRouteCount: vpnRouteCount,
+            routerCPUPercent: Int(values["router_cpu_percent"] ?? ""),
+            routerMemoryUsedMB: Int(values["router_memory_used_mb"] ?? ""),
+            routerMemoryTotalMB: Int(values["router_memory_total_mb"] ?? ""),
+            routerMemoryPercent: Int(values["router_memory_percent"] ?? "")
         )
     }
 

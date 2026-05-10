@@ -15,6 +15,8 @@ final class MenuBarController: NSObject {
     private let vpnTunnelIPMenuItem = NSMenuItem(title: "VPN Tunnel IP: Checking...", action: nil, keyEquivalent: "")
     private let vpnExitIPMenuItem = NSMenuItem(title: "VPN Exit IP: Checking...", action: nil, keyEquivalent: "")
     private let vpnLocationMenuItem = NSMenuItem(title: "VPN Location: Checking...", action: nil, keyEquivalent: "")
+    private let routerCPUMenuItem = NSMenuItem(title: "Router CPU: Checking...", action: nil, keyEquivalent: "")
+    private let routerMemoryMenuItem = NSMenuItem(title: "Router Memory: Checking...", action: nil, keyEquivalent: "")
     private let toggleMenuItem = NSMenuItem(title: "Connect", action: #selector(toggleVPN), keyEquivalent: "")
     private let refreshMenuItem = NSMenuItem(title: "Refresh Status", action: #selector(refreshStatus), keyEquivalent: "r")
     private var settingsWindowController: SettingsWindowController?
@@ -52,7 +54,15 @@ final class MenuBarController: NSObject {
         menu.autoenablesItems = false
         toggleMenuItem.target = self
         refreshMenuItem.target = self
-        [wanIPMenuItem, wanLocationMenuItem, vpnTunnelIPMenuItem, vpnExitIPMenuItem, vpnLocationMenuItem].forEach {
+        [
+            wanIPMenuItem,
+            wanLocationMenuItem,
+            vpnTunnelIPMenuItem,
+            vpnExitIPMenuItem,
+            vpnLocationMenuItem,
+            routerCPUMenuItem,
+            routerMemoryMenuItem
+        ].forEach {
             $0.isEnabled = false
         }
 
@@ -71,6 +81,9 @@ final class MenuBarController: NSObject {
         menu.addItem(vpnTunnelIPMenuItem)
         menu.addItem(vpnExitIPMenuItem)
         menu.addItem(vpnLocationMenuItem)
+        menu.addItem(.separator())
+        menu.addItem(routerCPUMenuItem)
+        menu.addItem(routerMemoryMenuItem)
         menu.addItem(.separator())
         menu.addItem(toggleMenuItem)
         menu.addItem(refreshMenuItem)
@@ -295,6 +308,38 @@ final class MenuBarController: NSObject {
             vpnExitIPMenuItem.title = "VPN Exit IP: Not connected"
             vpnLocationMenuItem.title = "VPN Location: Not connected"
         }
+
+        routerCPUMenuItem.title = "Router CPU: \(formatRouterCPU(status?.routerCPUPercent))"
+        routerMemoryMenuItem.title = "Router Memory: \(formatRouterMemory(status))"
+    }
+
+    private func formatRouterCPU(_ percent: Int?) -> String {
+        guard let percent else {
+            return "Unavailable"
+        }
+
+        return "\(clampedPercent(percent))%"
+    }
+
+    private func formatRouterMemory(_ status: VPNStatus?) -> String {
+        guard
+            let usedMB = status?.routerMemoryUsedMB,
+            let totalMB = status?.routerMemoryTotalMB
+        else {
+            if let percent = status?.routerMemoryPercent {
+                return "\(clampedPercent(percent))%"
+            }
+            return "Unavailable"
+        }
+
+        if let percent = status?.routerMemoryPercent {
+            return "\(usedMB) MB / \(totalMB) MB (\(clampedPercent(percent))%)"
+        }
+        return "\(usedMB) MB / \(totalMB) MB"
+    }
+
+    private func clampedPercent(_ value: Int) -> Int {
+        min(max(value, 0), 100)
     }
 
     private func showError(_ message: String) {

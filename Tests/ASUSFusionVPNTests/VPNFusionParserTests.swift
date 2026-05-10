@@ -100,6 +100,31 @@ import Testing
     #expect(status.vpnLocation == "New York City, New York, US")
 }
 
+@Test func routerOutputParsesResourceUsage() throws {
+    let output = """
+    vpnc_clientlist=Surfshark>Surfshark>5>>>0>5>>>0>0>Web
+    vpnc_state=0
+    interface_running=0
+    policy_rule_count=0
+    vpn_route_count=0
+    router_cpu_percent=17
+    router_memory_used_mb=312
+    router_memory_total_mb=512
+    router_memory_percent=61
+    """
+
+    let status = VPNFusionParser.status(
+        from: output,
+        profileName: "Surfshark",
+        unit: 5
+    )
+
+    #expect(status.routerCPUPercent == 17)
+    #expect(status.routerMemoryUsedMB == 312)
+    #expect(status.routerMemoryTotalMB == 512)
+    #expect(status.routerMemoryPercent == 61)
+}
+
 @Test func routerOutputIgnoresExpectSpawnTranscriptWhenParsingIPInfoBlocks() throws {
     let output = """
     spawn ssh router echo WAN_IPINFO_BEGIN; curl https://ipinfo.io/json; echo WAN_IPINFO_END
