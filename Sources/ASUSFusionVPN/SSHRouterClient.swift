@@ -45,8 +45,14 @@ struct SSHRouterClient: Sendable {
 
     let settings: AppSettings
 
-    func status() throws -> VPNStatus {
-        let output = try runSSH(command: Self.statusCommand(unit: settings.vpnUnit, includeIPLocations: settings.showIPLocations))
+    func status(includeIPLocations: Bool? = nil, includeResourceUsage: Bool = true) throws -> VPNStatus {
+        let output = try runSSH(
+            command: Self.statusCommand(
+                unit: settings.vpnUnit,
+                includeIPLocations: includeIPLocations ?? settings.showIPLocations,
+                includeResourceUsage: includeResourceUsage
+            )
+        )
         return VPNFusionParser.status(
             from: output,
             profileName: settings.profileName,
@@ -77,17 +83,22 @@ struct SSHRouterClient: Sendable {
         return try waitForExpectedState(enabled: enabled)
     }
 
-    static func statusCommand(unit: Int, includeIPLocations: Bool) -> String {
-        let resourceUsageCommand = """
-        read_cpu_totals() { awk '/^cpu / { idle=$5+$6; total=0; for (i=2; i<=NF; i++) total += $i; printf "%d %d\\n", idle, total; exit }' /proc/stat; }; \
-        set -- $(read_cpu_totals); cpu_idle_1=${1:-0}; cpu_total_1=${2:-0}; \
-        sleep 1; \
-        set -- $(read_cpu_totals); cpu_idle_2=${1:-0}; cpu_total_2=${2:-0}; \
-        cpu_total_delta=$((cpu_total_2 - cpu_total_1)); \
-        cpu_idle_delta=$((cpu_idle_2 - cpu_idle_1)); \
-        if [ "$cpu_total_delta" -gt 0 ]; then echo router_cpu_percent=$(( (100 * (cpu_total_delta - cpu_idle_delta) + cpu_total_delta / 2) / cpu_total_delta )); else echo router_cpu_percent=0; fi; \
-        awk '/^MemTotal:/ { total=$2 } /^MemAvailable:/ { available=$2 } /^MemFree:/ { free=$2 } /^Buffers:/ { buffers=$2 } /^Cached:/ { cached=$2 } END { if (available == "") available = free + buffers + cached; if (total > 0) { used = total - available; if (used < 0) used = 0; used_mb = int((used + 512) / 1024); total_mb = int((total + 512) / 1024); percent = int(((used * 100) + (total / 2)) / total); printf "router_memory_used_mb=%d\\nrouter_memory_total_mb=%d\\nrouter_memory_percent=%d\\n", used_mb, total_mb, percent } }' /proc/meminfo;
-        """
+    static func statusCommand(unit: Int, includeIPLocations: Bool, includeResourceUsage: Bool) -> String {
+        let resourceUsageCommand: String
+        if includeResourceUsage {
+            resourceUsageCommand = """
+            read_cpu_totals() { awk '/^cpu / { idle=$5+$6; total=0; for (i=2; i<=NF; i++) total += $i; printf "%d %d\\n", idle, total; exit }' /proc/stat; }; \
+            set -- $(read_cpu_totals); cpu_idle_1=${1:-0}; cpu_total_1=${2:-0}; \
+            sleep 1; \
+            set -- $(read_cpu_totals); cpu_idle_2=${1:-0}; cpu_total_2=${2:-0}; \
+            cpu_total_delta=$((cpu_total_2 - cpu_total_1)); \
+            cpu_idle_delta=$((cpu_idle_2 - cpu_idle_1)); \
+            if [ "$cpu_total_delta" -gt 0 ]; then echo router_cpu_percent=$(( (100 * (cpu_total_delta - cpu_idle_delta) + cpu_total_delta / 2) / cpu_total_delta )); else echo router_cpu_percent=0; fi; \
+            awk '/^MemTotal:/ { total=$2 } /^MemAvailable:/ { available=$2 } /^MemFree:/ { free=$2 } /^Buffers:/ { buffers=$2 } /^Cached:/ { cached=$2 } END { if (available == "") available = free + buffers + cached; if (total > 0) { used = total - available; if (used < 0) used = 0; used_mb = int((used + 512) / 1024); total_mb = int((total + 512) / 1024); percent = int(((used * 100) + (total / 2)) / total); printf "router_memory_used_mb=%d\\nrouter_memory_total_mb=%d\\nrouter_memory_percent=%d\\n", used_mb, total_mb, percent } }' /proc/meminfo;
+            """
+        } else {
+            resourceUsageCommand = ""
+        }
 
         let ipInfoCommand: String
         if includeIPLocations {

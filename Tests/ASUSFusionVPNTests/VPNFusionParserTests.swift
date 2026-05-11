@@ -100,6 +100,27 @@ import Testing
     #expect(status.vpnLocation == "New York City, New York, US")
 }
 
+@Test func routerOutputUsesEndpointLocationFallbackWhenIPInfoIsUnavailable() throws {
+    let output = """
+    vpnc_clientlist=Surfshark>Surfshark>5>>>1>5>>>0>0>Web
+    wgc_enable=1
+    vpnc_state=2
+    interface_running=1
+    vpn_route_count=2
+    router_epoch=200
+    vpn_latest_handshake=180
+    vpn_endpoint_host=us-atl.prod.surfshark.com
+    """
+
+    let status = VPNFusionParser.status(
+        from: output,
+        profileName: "Surfshark",
+        unit: 5
+    )
+
+    #expect(status.vpnLocation == "Atlanta, US")
+}
+
 @Test func routerOutputParsesResourceUsage() throws {
     let output = """
     vpnc_clientlist=Surfshark>Surfshark>5>>>0>5>>>0>0>Web
@@ -150,7 +171,7 @@ import Testing
     #expect(status.wanLocation == "Example City, Example Region, ZZ")
 }
 
-@Test func staleRuntimeWireGuardRoutesStillCountAsConnected() throws {
+@Test func inactiveProfileWithStaleRuntimeRoutesParsesAsDisconnected() throws {
     let output = """
     vpnc_clientlist=Surfshark>Surfshark>5>>>0>5>>>0>0>Web
     wgc_enable=0
@@ -166,7 +187,7 @@ import Testing
         unit: 5
     )
 
-    #expect(status.state == .connected)
+    #expect(status.state == .disconnected)
 }
 
 @Test func enabledProfileWithoutWireGuardHandshakeIsConnecting() throws {
@@ -190,7 +211,7 @@ import Testing
     #expect(status.state == .connecting)
 }
 
-@Test func staleWireGuardHandshakeDoesNotCountAsConnected() throws {
+@Test func liveWireGuardRuntimeCountsAsConnectedEvenWithStaleHandshake() throws {
     let output = """
     vpnc_clientlist=Surfshark>Surfshark>5>>>1>5>>>0>0>Web
     wgc_enable=1
@@ -208,7 +229,7 @@ import Testing
         unit: 5
     )
 
-    #expect(status.state == .connecting)
+    #expect(status.state == .connected)
 }
 
 @Test func policyRulesWithoutLiveTunnelDoNotCountAsConnected() throws {

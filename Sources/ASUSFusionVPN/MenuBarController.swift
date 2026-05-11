@@ -1,8 +1,15 @@
 import AppKit
 
 private enum RouterTaskResult: Sendable {
-    case success(VPNStatus)
+    case success(VPNStatus, displayState: VPNConnectionState?, followUpDelay: TimeInterval?)
     case failure(String)
+}
+
+private enum ToggleButtonAppearance {
+    static let disconnectedBackground = NSColor.clear
+    static let disconnectedBorder = NSColor(calibratedWhite: 0.34, alpha: 1)
+    static let connectedBackground = NSColor(calibratedRed: 0.05, green: 0.36, blue: 0.16, alpha: 1)
+    static let workingBackground = NSColor(calibratedWhite: 0.12, alpha: 1)
 }
 
 private final class MenuActionRowView: NSView {
@@ -14,11 +21,15 @@ private final class MenuActionRowView: NSView {
     private static let rowWidth: CGFloat = 452
     private static let plainRowHeight: CGFloat = 28
     private static let buttonRowHeight: CGFloat = 44
+    private static let shortcutColumnLeadingFromTrailing: CGFloat = -40
+    private static let shortcutColumnWidth: CGFloat = 50
 
     let button: NSButton
     private let shortcutField: NSTextField
     private let style: Style
     private var buttonBackgroundColor: NSColor?
+    private var buttonBorderColor: NSColor?
+    private var buttonTitleColor = NSColor.white
 
     var title: String {
         get { button.title }
@@ -33,8 +44,8 @@ private final class MenuActionRowView: NSView {
         set {
             button.isEnabled = newValue
             if style == .button {
-                button.contentTintColor = newValue ? .white : .disabledControlTextColor
-                updateButtonBackground()
+                button.contentTintColor = newValue ? buttonTitleColor : .disabledControlTextColor
+                updateButtonAppearance()
                 updateButtonTitle()
             } else {
                 button.contentTintColor = newValue ? .labelColor : .disabledControlTextColor
@@ -66,12 +77,13 @@ private final class MenuActionRowView: NSView {
             button.wantsLayer = true
             button.layer?.cornerRadius = 8
             button.layer?.masksToBounds = true
+            button.layer?.borderWidth = 0
             updateButtonTitle()
         }
 
         shortcutField.font = .menuFont(ofSize: 0)
         shortcutField.textColor = .tertiaryLabelColor
-        shortcutField.alignment = .right
+        shortcutField.alignment = .left
         shortcutField.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(button)
@@ -83,7 +95,8 @@ private final class MenuActionRowView: NSView {
 
         var constraints = [
             button.leadingAnchor.constraint(equalTo: leadingAnchor, constant: resolvedLeadingInset),
-            shortcutField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -30),
+            shortcutField.leadingAnchor.constraint(equalTo: trailingAnchor, constant: Self.shortcutColumnLeadingFromTrailing),
+            shortcutField.widthAnchor.constraint(equalToConstant: Self.shortcutColumnWidth),
             shortcutField.centerYAnchor.constraint(equalTo: centerYAnchor)
         ]
 
@@ -105,18 +118,32 @@ private final class MenuActionRowView: NSView {
     }
 
     func setButtonBackground(_ color: NSColor) {
-        buttonBackgroundColor = color
-        updateButtonBackground()
+        setButtonAppearance(background: color)
     }
 
-    private func updateButtonBackground() {
+    func setButtonAppearance(
+        background: NSColor,
+        border: NSColor? = nil,
+        titleColor: NSColor = .white
+    ) {
+        buttonBackgroundColor = background
+        buttonBorderColor = border
+        buttonTitleColor = titleColor
+        button.contentTintColor = button.isEnabled ? titleColor : .disabledControlTextColor
+        updateButtonAppearance()
+        updateButtonTitle()
+    }
+
+    private func updateButtonAppearance() {
         guard style == .button else {
             return
         }
 
-        let baseColor = buttonBackgroundColor ?? .controlAccentColor
-        let color = button.isEnabled ? baseColor : baseColor.withAlphaComponent(0.35)
-        button.layer?.backgroundColor = color.cgColor
+        let background = buttonBackgroundColor ?? .clear
+        let border = buttonBorderColor
+        button.layer?.backgroundColor = (button.isEnabled ? background : background.withAlphaComponent(0.35)).cgColor
+        button.layer?.borderColor = (button.isEnabled ? border : border?.withAlphaComponent(0.45))?.cgColor
+        button.layer?.borderWidth = border == nil ? 0 : 1
     }
 
     private func updateButtonTitle() {
@@ -128,7 +155,7 @@ private final class MenuActionRowView: NSView {
             string: button.title,
             attributes: [
                 .font: NSFont.menuFont(ofSize: 0),
-                .foregroundColor: button.isEnabled ? NSColor.white : NSColor.disabledControlTextColor
+                .foregroundColor: button.isEnabled ? buttonTitleColor : NSColor.disabledControlTextColor
             ]
         )
     }
@@ -188,8 +215,7 @@ final class MenuBarController: NSObject {
 
     private func configureMenu() {
         menu.autoenablesItems = false
-        toggleMenuView.title = "Connect \(settings.profileName)"
-        toggleMenuView.setButtonBackground(.systemGreen)
+        updateToggleButton(for: .unknown)
         toggleMenuView.button.target = self
         toggleMenuView.button.action = #selector(toggleVPN)
         toggleMenuItem.view = toggleMenuView
@@ -253,14 +279,22 @@ final class MenuBarController: NSObject {
         let shouldConnect = lastStatus?.state != .connected
         runRouterTask(
             busyTitle: shouldConnect ? "Status: Connecting..." : "Status: Disconnecting...",
-            busyIconState: .connecting
+            busyIconState: .connecting,
+            busyButtonTitle: shouldConnect ? "Connecting to \(settings.profileName)..." : "Disconnecting from \(settings.profileName)...",
+            followUpDelay: StatusRefreshPolicy.toggleFollowUpRefreshDelay
         ) { client in
             try client.setEnabled(shouldConnect)
         }
     }
 
     private func reconnectVPNForRegionChange() {
-        runRouterTask(busyTitle: "Status: Switching Region...", busyIconState: .connecting) { client in
+        runRouterTask(
+            busyTitle: "Status: Switching Region...",
+            busyIconState: .connecting,
+            busyButtonTitle: "Switching \(settings.profileName)...",
+            resultDisplayState: .connecting,
+            followUpDelay: StatusRefreshPolicy.toggleFollowUpRefreshDelay
+        ) { client in
             _ = try client.setEnabled(false)
             return try client.setEnabled(true)
         }
@@ -316,12 +350,25 @@ final class MenuBarController: NSObject {
     private func runRouterTask(
         busyTitle: String,
         busyIconState: VPNConnectionState? = nil,
+        busyButtonTitle: String? = nil,
+        resultDisplayState: VPNConnectionState? = nil,
+        followUpDelay: TimeInterval? = nil,
         task: @Sendable @escaping (SSHRouterClient) throws -> VPNStatus
     ) {
         guard !isBusy else { return }
         cancelFollowUpRefresh()
         isBusy = true
-        setPlainStatusTitle(busyTitle)
+        if lastStatus == nil {
+            setPlainStatusTitle(busyTitle)
+        }
+        if let busyButtonTitle {
+            toggleMenuView.title = busyButtonTitle
+            toggleMenuView.setButtonAppearance(
+                background: ToggleButtonAppearance.workingBackground,
+                border: ToggleButtonAppearance.disconnectedBorder,
+                titleColor: .labelColor
+            )
+        }
         toggleMenuView.isEnabled = false
         refreshMenuView.isEnabled = false
         if let busyIconState {
@@ -333,7 +380,11 @@ final class MenuBarController: NSObject {
         DispatchQueue.global(qos: .userInitiated).async {
             let result: RouterTaskResult
             do {
-                result = .success(try task(SSHRouterClient(settings: currentSettings)))
+                result = .success(
+                    try task(SSHRouterClient(settings: currentSettings)),
+                    displayState: resultDisplayState,
+                    followUpDelay: followUpDelay
+                )
             } catch {
                 result = .failure(error.localizedDescription)
             }
@@ -350,26 +401,31 @@ final class MenuBarController: NSObject {
         refreshMenuView.isEnabled = true
 
         switch result {
-        case .success(let status):
+        case .success(let status, let displayState, let followUpDelay):
             lastStatus = status
-            updateMenu(for: status)
-            scheduleFollowUpRefreshIfNeeded(after: status.state)
+            updateMenu(for: status, displayState: displayState)
+            scheduleFollowUpRefreshIfNeeded(
+                after: displayState ?? status.state,
+                forcedDelay: followUpDelay
+            )
         case .failure(let message):
             cancelFollowUpRefresh()
             lastStatus = nil
             setPlainStatusTitle("Status: Error")
             updateNetworkItems(for: nil)
-            toggleMenuView.title = "Connect \(settings.profileName)"
-            toggleMenuView.setButtonBackground(.systemGreen)
+            updateToggleButton(for: .unknown)
             statusItem.button?.image = IconFactory.menuBarIcon(state: .unknown)
             showError(message)
         }
     }
 
-    private func scheduleFollowUpRefreshIfNeeded(after state: VPNConnectionState) {
+    private func scheduleFollowUpRefreshIfNeeded(
+        after state: VPNConnectionState,
+        forcedDelay: TimeInterval? = nil
+    ) {
         cancelFollowUpRefresh()
 
-        guard let delay = StatusRefreshPolicy.followUpRefreshDelay(after: state) else {
+        guard let delay = forcedDelay ?? StatusRefreshPolicy.followUpRefreshDelay(after: state) else {
             return
         }
 
@@ -387,13 +443,13 @@ final class MenuBarController: NSObject {
         pendingFollowUpRefresh = nil
     }
 
-    private func updateMenu(for status: VPNStatus) {
+    private func updateMenu(for status: VPNStatus, displayState: VPNConnectionState? = nil) {
+        let resolvedDisplayState = displayState ?? status.state
         setStatusTitle(for: status)
         updateNetworkItems(for: status)
-        toggleMenuView.title = status.state == .connected ? "Disconnect \(settings.profileName)" : "Connect \(settings.profileName)"
-        toggleMenuView.setButtonBackground(status.state == .connected ? .systemRed : .systemGreen)
-        statusItem.button?.image = IconFactory.menuBarIcon(state: status.state)
-        statusItem.button?.toolTip = "ASUS Fusion VPN - \(status.state.displayName)"
+        updateToggleButton(for: resolvedDisplayState)
+        statusItem.button?.image = IconFactory.menuBarIcon(state: resolvedDisplayState)
+        statusItem.button?.toolTip = "ASUS Fusion VPN - \(resolvedDisplayState.displayName)"
     }
 
     private func refreshStatusMenuTitle() {
@@ -407,10 +463,33 @@ final class MenuBarController: NSObject {
     private func setStatusTitle(for status: VPNStatus) {
         statusMenuItem.attributedTitle = StatusMenuTitleFormatter.title(
             profileName: settings.profileName,
-            state: status.state,
-            regionName: selectedRegionDisplayName(),
-            vpnTunnelIP: status.state == .connected ? status.vpnTunnelIP : nil
+            regionName: selectedRegionDisplayName()
         )
+    }
+
+    private func updateToggleButton(for state: VPNConnectionState) {
+        switch state {
+        case .connected:
+            toggleMenuView.title = "Disconnect from \(settings.profileName)"
+            toggleMenuView.setButtonAppearance(
+                background: ToggleButtonAppearance.connectedBackground,
+                titleColor: .white
+            )
+        case .connecting:
+            toggleMenuView.title = "Connecting to \(settings.profileName)..."
+            toggleMenuView.setButtonAppearance(
+                background: ToggleButtonAppearance.workingBackground,
+                border: ToggleButtonAppearance.disconnectedBorder,
+                titleColor: .labelColor
+            )
+        case .disconnected, .unknown:
+            toggleMenuView.title = "Connect to \(settings.profileName)"
+            toggleMenuView.setButtonAppearance(
+                background: ToggleButtonAppearance.disconnectedBackground,
+                border: ToggleButtonAppearance.disconnectedBorder,
+                titleColor: .labelColor
+            )
+        }
     }
 
     private func setPlainStatusTitle(_ title: String) {
@@ -431,7 +510,10 @@ final class MenuBarController: NSObject {
                 await MainActor.run {
                     guard let self else { return }
                     VPNRegionStore.saveCachedRegions(fetchedRegions)
-                    self.regions = fetchedRegions
+                    self.regions = VPNRegionStore.combinedRegions(
+                        catalogRegions: fetchedRegions,
+                        selectedRegion: self.settings.selectedRegion
+                    )
                     self.syncSelectedRegionPublicKey()
                     self.refreshStatusMenuTitle()
                 }

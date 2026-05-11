@@ -3,41 +3,17 @@ import Testing
 @testable import ASUSFusionVPN
 
 @MainActor
-@Test func connectedStatusTitleColorsEachSegment() throws {
-    let status = testStatus(state: .connected, tunnelIP: "10.0.0.2")
-
+@Test func statusTitleShowsProfileAndRegionOnly() throws {
     let title = StatusMenuTitleFormatter.title(
         profileName: "Surfshark",
-        state: status.state,
-        regionName: "United States / New York",
-        vpnTunnelIP: status.vpnTunnelIP
+        regionName: "United States / New York"
     )
 
-    #expect(title.string == "Surfshark: Connected - (United States / New York - 10.0.0.2)")
+    #expect(title.string == "Surfshark: United States / New York")
     let profileColor = try foregroundColor(in: title, matching: "Surfshark:")
-    let stateColor = try foregroundColor(in: title, matching: "Connected")
-    let detailColor = try foregroundColor(in: title, matching: " - (United States / New York - 10.0.0.2)")
+    let detailColor = try foregroundColor(in: title, matching: "United States / New York")
     #expect(profileColor === StatusMenuTitleFormatter.profileColor)
     #expect(profileColor.isEqual(NSColor.labelColor))
-    #expect(stateColor === StatusMenuTitleFormatter.connectedColor)
-    #expect(detailColor === StatusMenuTitleFormatter.detailColor)
-}
-
-@MainActor
-@Test func disconnectedStatusTitleUsesRedStateAndNoTunnelIP() throws {
-    let status = testStatus(state: .disconnected, tunnelIP: nil)
-
-    let title = StatusMenuTitleFormatter.title(
-        profileName: "Surfshark",
-        state: status.state,
-        regionName: "United States / New York",
-        vpnTunnelIP: status.vpnTunnelIP
-    )
-
-    #expect(title.string == "Surfshark: Disconnected - (United States / New York)")
-    let stateColor = try foregroundColor(in: title, matching: "Disconnected")
-    let detailColor = try foregroundColor(in: title, matching: " - (United States / New York)")
-    #expect(stateColor === StatusMenuTitleFormatter.disconnectedColor)
     #expect(detailColor === StatusMenuTitleFormatter.detailColor)
 }
 
@@ -57,28 +33,4 @@ private func foregroundColor(in title: NSAttributedString, matching text: String
 
 private struct StatusTitleTestError: Error {
     let message: String
-}
-
-private func testStatus(state: VPNConnectionState, tunnelIP: String?) -> VPNStatus {
-    VPNStatus(
-        state: state,
-        profileName: "Surfshark",
-        unit: 5,
-        activeFlag: state != .disconnected,
-        stateCode: state == .disconnected ? "0" : "2",
-        interfaceRunning: state == .connected,
-        rawClientList: "Surfshark>Surfshark>5>>>1>5>>>0>0>Web",
-        wanIP: nil,
-        wanLocation: nil,
-        vpnTunnelIP: tunnelIP,
-        vpnEndpointHost: nil,
-        vpnEndpointIP: nil,
-        vpnLocation: nil,
-        policyRuleCount: 0,
-        vpnRouteCount: state == .connected ? 2 : 0,
-        routerCPUPercent: nil,
-        routerMemoryUsedMB: nil,
-        routerMemoryTotalMB: nil,
-        routerMemoryPercent: nil
-    )
 }

@@ -4,21 +4,18 @@ enum VPNRegionStore {
     private static let cachedRegionsKey = "cachedSurfsharkRegions"
 
     static func initialRegions(settings: AppSettings) -> [VPNRegion] {
-        var regions = cachedRegions()
-        if regions.isEmpty {
-            regions = [VPNRegionCatalog.fallbackRegion]
+        let catalogRegions: [VPNRegion]
+        let cachedCatalogRegions = cachedRegions()
+        if cachedCatalogRegions.isEmpty {
+            catalogRegions = [VPNRegionCatalog.fallbackRegion]
+        } else {
+            catalogRegions = cachedCatalogRegions
         }
 
-        if
-            let selectedRegion = settings.selectedRegion,
-            VPNRegionCatalog.region(matching: selectedRegion.endpointHost, in: regions) == nil
-        {
-            regions.append(selectedRegion)
-        }
-
-        return regions.sorted {
-            $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
-        }
+        return combinedRegions(
+            catalogRegions: catalogRegions,
+            selectedRegion: settings.selectedRegion
+        )
     }
 
     static func cachedRegions() -> [VPNRegion] {
@@ -35,6 +32,24 @@ enum VPNRegionStore {
     static func saveCachedRegions(_ regions: [VPNRegion]) {
         guard let data = try? JSONEncoder().encode(regions) else { return }
         UserDefaults.standard.set(data, forKey: cachedRegionsKey)
+    }
+
+    static func combinedRegions(
+        catalogRegions: [VPNRegion],
+        selectedRegion: VPNRegion?
+    ) -> [VPNRegion] {
+        var regionsByID: [String: VPNRegion] = [:]
+        for region in catalogRegions {
+            regionsByID[region.id] = region
+        }
+
+        if let selectedRegion, regionsByID[selectedRegion.id] == nil {
+            regionsByID[selectedRegion.id] = selectedRegion
+        }
+
+        return regionsByID.values.sorted {
+            $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+        }
     }
 
     static func fetchRegions() async throws -> [VPNRegion] {

@@ -5,7 +5,7 @@ import Testing
 @Test func connectingStatusRequestsShortFollowUpRefresh() {
     let delay = StatusRefreshPolicy.followUpRefreshDelay(after: .connecting)
 
-    #expect(delay == 5)
+    #expect(delay == 3)
 }
 
 @Test func terminalStatusesDoNotRequestFollowUpRefresh() {

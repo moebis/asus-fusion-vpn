@@ -20,6 +20,18 @@ import Testing
     }
 }
 
+@Test func runProcessPassesCustomEnvironment() throws {
+    let client = SSHRouterClient(settings: testSettings())
+
+    let output = try client.runProcess(
+        executable: "/bin/sh",
+        arguments: ["-c", "printf '%s' \"$ASUS_FUSION_VPN_TEST_VALUE\""],
+        environment: ["ASUS_FUSION_VPN_TEST_VALUE": "router-value"]
+    )
+
+    #expect(output.trimmingCharacters(in: .newlines) == "router-value")
+}
+
 private func testSettings() -> AppSettings {
     AppSettings(
         routerHost: "192.168.1.1",

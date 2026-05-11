@@ -4,6 +4,23 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [Unreleased]
+
+### Changed
+
+- Make the top status button double as the VPN action/status control: hollow with `Connect to <profile>` while disconnected and dark green with `Disconnect from <profile>` while connected.
+- Simplify the profile header line to show only the profile name and selected VPN location.
+- Re-align the custom `Refresh Status` shortcut against the native menu shortcut column.
+- Restore the known-good `1.0.4` VPN activation path: read the full router status before toggling, write the selected Surfshark endpoint on connect, resolve the endpoint with the router's original `nslookup` flow, and run ASUSWRT service/policy commands in the same order as the working release.
+- Roll password storage back to app preferences to avoid Keychain prompts during launch, status refresh, and connect/disconnect.
+- Document that users upgrading from the Keychain-based build should re-enter the router password once in Settings.
+- Roll the Region picker back to Surfshark catalog locations only; the VPN Unit finder once again only fills the profile name and unit number.
+- Keep the router password out of the expect child-process environment by handing it to the SSH helper over standard input.
+- Preserve friendly Surfshark region names for selected endpoints, including fallback display names such as `United States / Atlanta` and `Atlanta, US` when live IP location lookup is unavailable.
+- Restore the router policy-rule and stale WireGuard route/interface cleanup commands from the working release.
+- Treat a live WireGuard interface or route as connected even when the latest-handshake timestamp lags, matching how ASUSWRT reports the VPN as connected.
+- Treat an inactive VPN Fusion profile as disconnected even if stale WireGuard routes or interfaces are still present, so the menu does not claim the VPN is connected when the router UI shows it off.
+
 ## [1.0.9] - 2026-05-10
 
 ### Fixed

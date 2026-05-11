@@ -51,4 +51,5 @@ enum VPNFusionRouterCommands {
         ip link delete wgc\(unit) 2>/dev/null || true
         """
     }
+
 }

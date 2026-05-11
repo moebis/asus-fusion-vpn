@@ -338,7 +338,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                 await MainActor.run {
                     guard let self else { return }
                     VPNRegionStore.saveCachedRegions(fetchedRegions)
-                    self.regions = fetchedRegions
+                    self.regions = VPNRegionStore.combinedRegions(
+                        catalogRegions: fetchedRegions,
+                        selectedRegion: self.currentSelectedRegion()
+                    )
                     self.repairSelectedRegionFromCatalog()
                     self.refreshRegionMenu()
                 }
@@ -539,6 +542,24 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         unitField.stringValue = String(profile.unit)
     }
 
+    private func currentSelectedRegion() -> VPNRegion? {
+        if
+            let region = VPNRegionCatalog.region(matching: selectedRegionEndpoint, in: regions)
+        {
+            return region
+        }
+
+        let endpoint = selectedRegionEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !endpoint.isEmpty else {
+            return nil
+        }
+
+        return VPNRegionCatalog.selectedRegion(
+            endpointHost: endpoint,
+            publicKey: selectedRegionPublicKey
+        )
+    }
+
     @objc private func save() {
         let routerHost: String
         let username: String
@@ -575,7 +596,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         do {
             try settings.save()
         } catch {
-            showAlert(message: "Could not save the router password in Keychain: \(error.localizedDescription)")
+            showAlert(message: "Could not save settings: \(error.localizedDescription)")
             return
         }
 

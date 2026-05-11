@@ -20,26 +20,18 @@ enum VPNFusionParser {
         let interfaceRunning = values["interface_running"] == "1"
         let policyRuleCount = Int(values["policy_rule_count"] ?? "") ?? 0
         let vpnRouteCount = Int(values["vpn_route_count"] ?? "") ?? 0
-        let routerEpoch = Int(values["router_epoch"] ?? "") ?? 0
-        let vpnLatestHandshake = Int(values["vpn_latest_handshake"] ?? "") ?? 0
         let runtimeVPNActive = interfaceRunning || vpnRouteCount > 0
-        let freshHandshake = hasFreshHandshake(
-            latestHandshake: vpnLatestHandshake,
-            routerEpoch: routerEpoch
-        )
         let wanInfo = ipInfoBlock(named: "WAN_IPINFO", in: cleanedOutput)
         let vpnInfo = ipInfoBlock(named: "VPN_IPINFO", in: cleanedOutput)
         let vpnEndpointHost = values["vpn_endpoint_host"]
 
         let state: VPNConnectionState
-        if activeFlag && stateCode == "2" && runtimeVPNActive && freshHandshake {
-            state = .connected
-        } else if !activeFlag && runtimeVPNActive {
+        if !activeFlag {
+            state = .disconnected
+        } else if stateCode == "2" && runtimeVPNActive {
             state = .connected
         } else if activeFlag && stateCode != "0" {
             state = .connecting
-        } else if !activeFlag {
-            state = .disconnected
         } else {
             state = .unknown
         }
@@ -155,31 +147,8 @@ enum VPNFusionParser {
         return nil
     }
 
-    private static func hasFreshHandshake(latestHandshake: Int, routerEpoch: Int) -> Bool {
-        guard latestHandshake > 0 else { return false }
-        guard routerEpoch > 0 else { return true }
-
-        let age = max(0, routerEpoch - latestHandshake)
-        return age <= 180
-    }
-
     private static func locationFromEndpointHost(_ host: String?) -> String? {
-        guard let host else { return nil }
-        let lowercasedHost = host.lowercased()
-        let knownLocations = [
-            "us-nyc": "New York, US",
-            "us-lax": "Los Angeles, US",
-            "us-mia": "Miami, US",
-            "us-chi": "Chicago, US",
-            "us-dal": "Dallas, US",
-            "us-sea": "Seattle, US",
-            "uk-lon": "London, GB",
-            "de-fra": "Frankfurt, DE",
-            "nl-ams": "Amsterdam, NL",
-            "fr-par": "Paris, FR"
-        ]
-
-        return knownLocations.first { lowercasedHost.contains($0.key) }?.value
+        VPNRegionCatalog.displayLocation(forEndpointHost: host)
     }
 
     private static func activeFlag(in clientList: String, unit: Int) -> Bool {

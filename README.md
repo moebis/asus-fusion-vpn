@@ -127,7 +127,7 @@ Set:
 - `Region`: Surfshark endpoint to write into the WireGuard profile when connecting.
 - `Show IP location details`: when enabled, the app asks the router to fetch display-only IP location labels.
 
-The router password is stored in macOS Keychain. Non-secret settings such as router host, SSH port, username, profile name, VPN unit, region, favorites, and location-display preference are stored in the app's macOS preferences. If you used an older build, the app migrates the saved router password out of preferences and removes the legacy preference value after the Keychain save succeeds.
+The router password and settings are stored in the app's macOS preferences. This avoids Keychain prompts during launch, status refresh, and connect/disconnect actions. Use this app on a Mac account you trust.
 
 ## Finding the VPN Unit
 
@@ -158,7 +158,7 @@ The app reads router state with SSH commands that inspect ASUSWRT `nvram`, the `
 
 Each status refresh or VPN action opens a short-lived SSH process, runs one command batch, and exits. The app does not keep persistent SSH sessions open. The SSH helper has an expect timeout and the macOS process wrapper also enforces a hard timeout so a wedged router command does not leave the app waiting forever.
 
-The app keeps its own SSH `known_hosts` file under macOS Application Support and pins the router host key there after the first successful connection. This keeps the app from modifying your personal SSH `known_hosts` file. Like normal SSH trust-on-first-use, the very first connection assumes your LAN is trustworthy. If you want to verify the router key before first use, run:
+The app uses OpenSSH host-key handling with `StrictHostKeyChecking=accept-new`. Like normal SSH trust-on-first-use, the very first connection assumes your LAN is trustworthy. If you want to verify the router key before first use, run:
 
 ```zsh
 ssh-keyscan -p 22 192.168.1.1 | ssh-keygen -lf -
@@ -170,11 +170,11 @@ When connecting, it:
 
 - Updates the configured VPN Fusion profile active flag in `vpnc_clientlist`.
 - Sets `vpnc_unit` to the configured unit.
-- Writes the selected Surfshark endpoint host and peer public key into the WireGuard profile.
-- Resolves the endpoint host and stores the resolved endpoint IP when available.
+- Writes the selected Surfshark endpoint host and peer public key.
+- Resolves and stores the selected endpoint IP.
 - Runs `nvram commit`.
 - Runs `service restart_vpnc`.
-- Re-applies saved VPN Fusion device policy rules for the selected unit.
+- Re-applies VPN Fusion policy routing rules for the configured unit.
 
 When disconnecting, it:
 
@@ -182,7 +182,7 @@ When disconnecting, it:
 - Sets `vpnc_unit` to the configured unit.
 - Runs `nvram commit`.
 - Runs `service stop_vpnc`.
-- Removes stale policy rules, flushes the VPN route table, and deletes the stale `wgc<unit>` runtime interface if ASUSWRT leaves it behind.
+- Cleans up stale policy rules, the unit route table, and the `wgc<unit>` interface.
 
 Review [VPNFusionRouterCommands.swift](Sources/ASUSFusionVPN/VPNFusionRouterCommands.swift) before using this on a different firmware or VPN Fusion setup.
 
@@ -222,10 +222,10 @@ dist/
 ## Troubleshooting
 
 - `Open Settings and enter the router username and password.`: credentials have not been saved yet.
+- `Status: Error` after upgrading from a Keychain-based build: open `Settings...`, enter the router password again, and save. Current builds store the password in app preferences so the app does not trigger Keychain prompts.
 - SSH connection fails: confirm SSH is enabled for LAN access on the router, the Mac is on the same local network, and the app's `SSH Port` matches the router's SSH port.
-- Status stays `Connecting`: the profile is active, but the app has not seen a fresh WireGuard handshake and live runtime state yet.
+- Status stays `Connecting`: the profile is active, but the app has not seen the live WireGuard interface or VPN routes yet.
 - Router status works but location is unavailable: the router may not be able to reach `ipinfo.io`, `curl` may not be available on the router, or `Show IP location details` may be turned off.
-- Saving settings fails with a Keychain error: unlock the Mac login keychain, relaunch the app, and save settings again.
 - Build errors mention the old project path: run `swift package clean` and build again. This can happen after copying the project to a new folder.
 - App cannot control the profile: confirm the VPN Fusion unit number matches the router profile and review the generated router commands.
 
@@ -238,7 +238,7 @@ This app is intentionally small and local:
 - It does not run a separate daemon.
 - It connects to Surfshark's public cluster API to refresh region choices.
 - If `Show IP location details` is enabled, it asks the router to call `ipinfo.io` for display-only IP/location labels.
-- It stores the router password in macOS Keychain and removes the legacy saved-password preference from older app builds after migration.
+- It stores the router password in app preferences so the app can run without Keychain prompts.
 
 The app changes router VPN state over SSH. Use it only with a router and profile you control.
 
