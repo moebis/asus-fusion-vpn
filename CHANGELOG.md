@@ -4,7 +4,7 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
-## [Unreleased]
+## [1.0.10] - 2026-05-11
 
 ### Changed
 
