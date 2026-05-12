@@ -187,6 +187,8 @@ final class MenuBarController: NSObject {
     private var settings = AppSettings.load()
     private var regions: [VPNRegion] = []
     private var lastStatus: VPNStatus?
+    private var lastDisplayState: VPNConnectionState?
+    private var lastToggleProfileName: String?
     private var isBusy = false
     private var pendingFollowUpRefresh: DispatchWorkItem?
 
@@ -266,7 +268,10 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func refreshStatus() {
-        runRouterTask(busyTitle: "Status: Checking...") { client in
+        runRouterTask(
+            busyTitle: "Status: Checking...",
+            presentation: .statusRefresh
+        ) { client in
             try client.status()
         }
     }
@@ -319,6 +324,7 @@ final class MenuBarController: NSObject {
             self.settings = newSettings
             self.regions = VPNRegionStore.initialRegions(settings: newSettings)
             self.refreshStatusMenuTitle()
+            self.refreshToggleButtonTitle()
 
             switch action {
             case .refresh:
@@ -353,15 +359,18 @@ final class MenuBarController: NSObject {
         busyButtonTitle: String? = nil,
         resultDisplayState: VPNConnectionState? = nil,
         followUpDelay: TimeInterval? = nil,
+        presentation: RouterTaskPresentation = .visibleAction,
         task: @Sendable @escaping (SSHRouterClient) throws -> VPNStatus
     ) {
         guard !isBusy else { return }
-        cancelFollowUpRefresh()
+        if presentation.appliesBusyState {
+            cancelFollowUpRefresh()
+        }
         isBusy = true
-        if lastStatus == nil {
+        if presentation.appliesBusyState, lastStatus == nil {
             setPlainStatusTitle(busyTitle)
         }
-        if let busyButtonTitle {
+        if presentation.appliesBusyState, let busyButtonTitle {
             toggleMenuView.title = busyButtonTitle
             toggleMenuView.setButtonAppearance(
                 background: ToggleButtonAppearance.workingBackground,
@@ -369,9 +378,11 @@ final class MenuBarController: NSObject {
                 titleColor: .labelColor
             )
         }
-        toggleMenuView.isEnabled = false
-        refreshMenuView.isEnabled = false
-        if let busyIconState {
+        if presentation.disablesControls {
+            toggleMenuView.isEnabled = false
+            refreshMenuView.isEnabled = false
+        }
+        if presentation.appliesBusyState, let busyIconState {
             statusItem.button?.image = IconFactory.menuBarIcon(state: busyIconState)
         }
 
@@ -390,32 +401,46 @@ final class MenuBarController: NSObject {
             }
 
             Task { @MainActor [weak self] in
-                self?.handle(result: result)
+                self?.handle(result: result, presentation: presentation)
             }
         }
     }
 
-    private func handle(result: RouterTaskResult) {
+    private func handle(result: RouterTaskResult, presentation: RouterTaskPresentation) {
         isBusy = false
-        toggleMenuView.isEnabled = true
-        refreshMenuView.isEnabled = true
+        if presentation.disablesControls {
+            toggleMenuView.isEnabled = true
+            refreshMenuView.isEnabled = true
+        }
 
         switch result {
         case .success(let status, let displayState, let followUpDelay):
-            lastStatus = status
             updateMenu(for: status, displayState: displayState)
+            lastStatus = status
             scheduleFollowUpRefreshIfNeeded(
                 after: displayState ?? status.state,
                 forcedDelay: followUpDelay
             )
         case .failure(let message):
-            cancelFollowUpRefresh()
-            lastStatus = nil
-            setPlainStatusTitle("Status: Error")
-            updateNetworkItems(for: nil)
-            updateToggleButton(for: .unknown)
-            statusItem.button?.image = IconFactory.menuBarIcon(state: .unknown)
-            showError(message)
+            if presentation.appliesBusyState {
+                cancelFollowUpRefresh()
+            }
+            let hadLastStatus = lastStatus != nil
+            if presentation.clearsStatusOnFailure {
+                lastStatus = nil
+                lastDisplayState = nil
+                lastToggleProfileName = nil
+            }
+            if let failureTitle = presentation.failureTitle(hasLastStatus: hadLastStatus) {
+                setPlainStatusTitle(failureTitle)
+                updateNetworkItems(for: nil)
+                updateToggleButton(for: .unknown)
+                statusItem.button?.image = IconFactory.menuBarIcon(state: .unknown)
+                statusItem.button?.toolTip = "ASUS Fusion VPN - Unknown"
+            }
+            if presentation.showsFailureAlert {
+                showError(message)
+            }
         }
     }
 
@@ -445,11 +470,22 @@ final class MenuBarController: NSObject {
 
     private func updateMenu(for status: VPNStatus, displayState: VPNConnectionState? = nil) {
         let resolvedDisplayState = displayState ?? status.state
-        setStatusTitle(for: status)
-        updateNetworkItems(for: status)
-        updateToggleButton(for: resolvedDisplayState)
-        statusItem.button?.image = IconFactory.menuBarIcon(state: resolvedDisplayState)
-        statusItem.button?.toolTip = "ASUS Fusion VPN - \(resolvedDisplayState.displayName)"
+        if StatusDisplayUpdatePolicy.shouldUpdateStatusDetails(previousStatus: lastStatus, nextStatus: status) {
+            setStatusTitle(for: status)
+            updateNetworkItems(for: status)
+        }
+        if StatusDisplayUpdatePolicy.shouldUpdateStateChrome(
+            previousDisplayState: lastDisplayState,
+            nextDisplayState: resolvedDisplayState,
+            previousProfileName: lastToggleProfileName,
+            nextProfileName: settings.profileName
+        ) {
+            updateToggleButton(for: resolvedDisplayState)
+            statusItem.button?.image = IconFactory.menuBarIcon(state: resolvedDisplayState)
+            statusItem.button?.toolTip = "ASUS Fusion VPN - \(resolvedDisplayState.displayName)"
+            lastDisplayState = resolvedDisplayState
+            lastToggleProfileName = settings.profileName
+        }
     }
 
     private func refreshStatusMenuTitle() {
@@ -465,6 +501,11 @@ final class MenuBarController: NSObject {
             profileName: settings.profileName,
             regionName: selectedRegionDisplayName()
         )
+    }
+
+    private func refreshToggleButtonTitle() {
+        updateToggleButton(for: lastDisplayState ?? lastStatus?.state ?? .unknown)
+        lastToggleProfileName = settings.profileName
     }
 
     private func updateToggleButton(for state: VPNConnectionState) {

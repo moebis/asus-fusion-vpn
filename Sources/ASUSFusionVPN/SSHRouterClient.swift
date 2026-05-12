@@ -17,7 +17,7 @@ enum VPNConnectionState: String, Sendable {
     }
 }
 
-struct VPNStatus: Sendable {
+struct VPNStatus: Equatable, Sendable {
     let state: VPNConnectionState
     let profileName: String
     let unit: Int
@@ -37,6 +37,30 @@ struct VPNStatus: Sendable {
     let routerMemoryUsedMB: Int?
     let routerMemoryTotalMB: Int?
     let routerMemoryPercent: Int?
+
+    func withWANLocation(_ wanLocation: String) -> VPNStatus {
+        VPNStatus(
+            state: state,
+            profileName: profileName,
+            unit: unit,
+            activeFlag: activeFlag,
+            stateCode: stateCode,
+            interfaceRunning: interfaceRunning,
+            rawClientList: rawClientList,
+            wanIP: wanIP,
+            wanLocation: wanLocation,
+            vpnTunnelIP: vpnTunnelIP,
+            vpnEndpointHost: vpnEndpointHost,
+            vpnEndpointIP: vpnEndpointIP,
+            vpnLocation: vpnLocation,
+            policyRuleCount: policyRuleCount,
+            vpnRouteCount: vpnRouteCount,
+            routerCPUPercent: routerCPUPercent,
+            routerMemoryUsedMB: routerMemoryUsedMB,
+            routerMemoryTotalMB: routerMemoryTotalMB,
+            routerMemoryPercent: routerMemoryPercent
+        )
+    }
 }
 
 struct SSHRouterClient: Sendable {
@@ -46,18 +70,27 @@ struct SSHRouterClient: Sendable {
     let settings: AppSettings
 
     func status(includeIPLocations: Bool? = nil, includeResourceUsage: Bool = true) throws -> VPNStatus {
+        let shouldIncludeIPLocations = includeIPLocations ?? settings.showIPLocations
         let output = try runSSH(
             command: Self.statusCommand(
                 unit: settings.vpnUnit,
-                includeIPLocations: includeIPLocations ?? settings.showIPLocations,
+                includeIPLocations: shouldIncludeIPLocations,
                 includeResourceUsage: includeResourceUsage
             )
         )
-        return VPNFusionParser.status(
+        let status = VPNFusionParser.status(
             from: output,
             profileName: settings.profileName,
             unit: settings.vpnUnit
         )
+        if shouldIncludeIPLocations,
+           status.wanLocation == nil,
+           let wanIP = status.wanIP,
+           let location = Self.lookupLocation(for: wanIP) {
+            return status.withWANLocation(location)
+        }
+
+        return status
     }
 
     func vpnFusionProfiles() throws -> [VPNFusionProfile] {
@@ -103,12 +136,19 @@ struct SSHRouterClient: Sendable {
         let ipInfoCommand: String
         if includeIPLocations {
             ipInfoCommand = """
+            lookup_ip_info() { \
+            lookup_ip="$1"; \
+            case "$lookup_ip" in ""|*[!0-9.]* ) return;; esac; \
+            lookup_response=$(curl -fsS --max-time 8 "https://api.ip2location.io/?ip=${lookup_ip}" 2>/dev/null || curl -fsS --max-time 8 "http://api.ip2location.io/?ip=${lookup_ip}" 2>/dev/null || true); \
+            if echo "$lookup_response" | grep -q '"country_name"'; then printf '%s\\n' "$lookup_response"; else curl -fsS --max-time 8 "https://ipinfo.io/${lookup_ip}/json" 2>/dev/null || curl -fsS --max-time 8 "http://ipinfo.io/${lookup_ip}/json" 2>/dev/null || true; fi; \
+            }; \
+            wan_lookup_ip=$(nvram get wan0_ipaddr); \
             echo WAN_IPINFO_BEGIN; \
-            curl -fsS --max-time 8 https://ipinfo.io/json 2>/dev/null || true; \
+            lookup_ip_info "$wan_lookup_ip"; \
             echo; \
             echo WAN_IPINFO_END; \
             vpn_endpoint_ip=$(wg show wgc${unit} 2>/dev/null | sed -n 's/^[[:space:]]*endpoint: \\([^:]*\\):.*/\\1/p' | head -1); \
-            if [ -n "$vpn_endpoint_ip" ]; then echo VPN_IPINFO_BEGIN; curl -fsS --max-time 8 https://ipinfo.io/${vpn_endpoint_ip}/json 2>/dev/null || true; echo; echo VPN_IPINFO_END; fi;
+            if [ -n "$vpn_endpoint_ip" ]; then echo VPN_IPINFO_BEGIN; lookup_ip_info "$vpn_endpoint_ip"; echo; echo VPN_IPINFO_END; fi;
             """
         } else {
             ipInfoCommand = ""
@@ -135,6 +175,15 @@ struct SSHRouterClient: Sendable {
         """
     }
 
+    static func geolocationURLs(for ipAddress: String) -> [URL] {
+        [
+            "https://api.ip2location.io/?ip=\(ipAddress)",
+            "http://api.ip2location.io/?ip=\(ipAddress)",
+            "https://ipinfo.io/\(ipAddress)/json",
+            "http://ipinfo.io/\(ipAddress)/json"
+        ].compactMap(URL.init(string:))
+    }
+
     private func waitForExpectedState(enabled: Bool) throws -> VPNStatus {
         let deadline = Date().addingTimeInterval(enabled ? 45 : 12)
         var latestStatus = try status()
@@ -153,6 +202,52 @@ struct SSHRouterClient: Sendable {
         }
 
         return latestStatus
+    }
+
+    private static func lookupLocation(for ipAddress: String) -> String? {
+        let trimmedIPAddress = ipAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedIPAddress.range(of: #"^[0-9.]+$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+
+        for url in geolocationURLs(for: trimmedIPAddress) {
+            guard
+                let data = fetchData(from: url),
+                let location = VPNFusionParser.displayLocation(fromIPInfoData: data)
+            else {
+                continue
+            }
+
+            return location
+        }
+
+        return nil
+    }
+
+    private static func fetchData(from url: URL, timeout: TimeInterval = 6) -> Data? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        let semaphore = DispatchSemaphore(value: 0)
+        let responseBox = HTTPResponseBox()
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            defer { semaphore.signal() }
+            guard
+                let httpResponse = response as? HTTPURLResponse,
+                200..<300 ~= httpResponse.statusCode
+            else {
+                return
+            }
+
+            responseBox.data = data
+        }
+        task.resume()
+
+        guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            task.cancel()
+            return nil
+        }
+
+        return responseBox.data
     }
 
     private func runSSH(command: String) throws -> String {
@@ -262,6 +357,10 @@ struct SSHRouterClient: Sendable {
             .joined(separator: "\n")
     }
 
+}
+
+private final class HTTPResponseBox: @unchecked Sendable {
+    var data: Data?
 }
 
 struct SSHError: LocalizedError, Sendable {

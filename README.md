@@ -25,6 +25,7 @@ The screenshots below intentionally redact local router details, usernames, IP a
 - Favorite regions sorted to the top of the region picker.
 - Region changes can reconnect an active VPN profile automatically.
 - Status details for Internet IP/location, WireGuard tunnel IP, VPN endpoint IP, VPN location, router CPU, and router memory usage.
+- Silent background refreshes: polling preserves the current menu state unless the returned router information actually changes.
 - Settings window for router host, SSH port, username, password, profile name, VPN unit, and region.
 - No background daemon and no web server; the app only talks to the router when refreshing status or toggling the VPN.
 
@@ -125,7 +126,7 @@ Set:
 - `Profile Name`: the VPN Fusion profile name shown in the router UI.
 - `VPN Unit`: the ASUS VPN Fusion unit number for that profile. Use `Find...` to discover it from the router.
 - `Region`: Surfshark endpoint to write into the WireGuard profile when connecting.
-- `Show IP location details`: when enabled, the app asks the router to fetch display-only IP location labels.
+- `Show IP location details`: when enabled, the app fetches display-only IP location labels for the router WAN IP and VPN endpoint IP.
 
 The router password and settings are stored in the app's macOS preferences. This avoids Keychain prompts during launch, status refresh, and connect/disconnect actions. Use this app on a Mac account you trust.
 
@@ -154,7 +155,9 @@ In this example, the VPN unit is `5`. ASUSWRT stores profile data as `>` separat
 
 ## Router Behavior
 
-The app reads router state with SSH commands that inspect ASUSWRT `nvram`, the `wgc<unit>` WireGuard interface, the route table matching the configured VPN unit, policy rules, `/proc/stat`, `/proc/meminfo`, and optional `ipinfo.io` responses for display-only location labels.
+The app reads router state with SSH commands that inspect ASUSWRT `nvram`, the `wgc<unit>` WireGuard interface, the route table matching the configured VPN unit, policy rules, `/proc/stat`, `/proc/meminfo`, and optional display-only IP location responses.
+
+When `Show IP location details` is enabled, the app looks up the router WAN IP and VPN endpoint IP with IP2Location first, then falls back to ipinfo. It asks the router to perform the lookup during status refresh, and can fall back to a local macOS lookup if the router returns an IP address without location details.
 
 Each status refresh or VPN action opens a short-lived SSH process, runs one command batch, and exits. The app does not keep persistent SSH sessions open. The SSH helper has an expect timeout and the macOS process wrapper also enforces a hard timeout so a wedged router command does not leave the app waiting forever.
 
@@ -174,6 +177,7 @@ When connecting, it:
 - Resolves and stores the selected endpoint IP.
 - Runs `nvram commit`.
 - Runs `service restart_vpnc`.
+- Runs `service start_wgc` so ASUSWRT creates the live `wgc<unit>` WireGuard interface and routes after router restarts.
 - Re-applies VPN Fusion policy routing rules for the configured unit.
 
 When disconnecting, it:
@@ -225,7 +229,7 @@ dist/
 - `Status: Error` after upgrading from a Keychain-based build: open `Settings...`, enter the router password again, and save. Current builds store the password in app preferences so the app does not trigger Keychain prompts.
 - SSH connection fails: confirm SSH is enabled for LAN access on the router, the Mac is on the same local network, and the app's `SSH Port` matches the router's SSH port.
 - Status stays `Connecting`: the profile is active, but the app has not seen the live WireGuard interface or VPN routes yet.
-- Router status works but location is unavailable: the router may not be able to reach `ipinfo.io`, `curl` may not be available on the router, or `Show IP location details` may be turned off.
+- Router status works but location is unavailable: confirm `Show IP location details` is turned on. Location display depends on IP2Location or ipinfo being reachable from the router or from macOS for the local fallback.
 - Build errors mention the old project path: run `swift package clean` and build again. This can happen after copying the project to a new folder.
 - App cannot control the profile: confirm the VPN Fusion unit number matches the router profile and review the generated router commands.
 
@@ -237,7 +241,7 @@ This app is intentionally small and local:
 - It does not expose a local HTTP server.
 - It does not run a separate daemon.
 - It connects to Surfshark's public cluster API to refresh region choices.
-- If `Show IP location details` is enabled, it asks the router to call `ipinfo.io` for display-only IP/location labels.
+- If `Show IP location details` is enabled, it uses IP2Location and ipinfo for display-only IP/location labels.
 - It stores the router password in app preferences so the app can run without Keychain prompts.
 
 The app changes router VPN state over SSH. Use it only with a router and profile you control.

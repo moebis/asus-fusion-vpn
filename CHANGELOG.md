@@ -4,6 +4,19 @@ All notable changes to ASUS Fusion VPN will be documented in this file.
 
 This project uses semantic versioning for public releases.
 
+## [Unreleased]
+
+## [1.0.11] - 2026-05-12
+
+### Fixed
+
+- Make background and manual status refreshes silent: they no longer disable menu controls, change button/icon state, show `Checking...`, or present alerts while polling.
+- Preserve the last known menu status if the router is temporarily unavailable, such as during a router reboot.
+- Only redraw the menu bar icon and connect/disconnect button when the displayed VPN state or profile label changes, preventing refresh flicker when polling returns the same state.
+- Start the ASUSWRT WireGuard client service after VPN Fusion restart so a profile that appears connected after a router reboot actually creates `wgc<unit>` routes and a live tunnel.
+- Treat an active profile with a live WireGuard interface/routes as connected even when ASUSWRT leaves `vpnc<unit>_state_t` blank after restart.
+- Look up Internet location details by the router WAN IP, with IP2Location first and ipinfo fallback, plus a local app fallback when SSH status returns a WAN IP without location details.
+
 ## [1.0.10] - 2026-05-11
 
 ### Changed

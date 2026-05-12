@@ -28,7 +28,7 @@ enum VPNFusionParser {
         let state: VPNConnectionState
         if !activeFlag {
             state = .disconnected
-        } else if stateCode == "2" && runtimeVPNActive {
+        } else if runtimeVPNActive {
             state = .connected
         } else if activeFlag && stateCode != "0" {
             state = .connecting
@@ -136,6 +136,10 @@ enum VPNFusionParser {
         return try? JSONDecoder().decode(IPInfo.self, from: data)
     }
 
+    static func displayLocation(fromIPInfoData data: Data) -> String? {
+        (try? JSONDecoder().decode(IPInfo.self, from: data))?.displayLocation
+    }
+
     private static func firstNonEmpty(_ values: String?...) -> String? {
         for value in values {
             let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -191,6 +195,14 @@ private struct IPInfo: Decodable {
     let region: String?
     let country: String?
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+        ip = container.decodeFirstString(forKeys: ["ip", "query", "ipAddress"])
+        city = container.decodeFirstString(forKeys: ["city_name", "city"])
+        region = container.decodeFirstString(forKeys: ["region_name", "regionName", "stateProv", "subdivision", "region"])
+        country = container.decodeFirstString(forKeys: ["country_name", "countryName", "country"])
+    }
+
     var displayLocation: String? {
         let location = [city, region, country]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -198,5 +210,36 @@ private struct IPInfo: Decodable {
             .joined(separator: ", ")
 
         return location.isEmpty ? nil : location
+    }
+}
+
+private struct DynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        intValue = nil
+    }
+
+    init?(intValue: Int) {
+        stringValue = "\(intValue)"
+        self.intValue = intValue
+    }
+}
+
+private extension KeyedDecodingContainer where Key == DynamicCodingKey {
+    func decodeFirstString(forKeys keys: [String]) -> String? {
+        for key in keys {
+            guard let codingKey = DynamicCodingKey(stringValue: key) else { continue }
+            if let value = try? decode(String.self, forKey: codingKey) {
+                let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedValue.isEmpty {
+                    return trimmedValue
+                }
+            }
+        }
+
+        return nil
     }
 }

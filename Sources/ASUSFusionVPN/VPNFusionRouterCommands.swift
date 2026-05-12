@@ -18,6 +18,9 @@ enum VPNFusionRouterCommands {
 
         commands.append("nvram commit")
         commands.append("service \(enabled ? "restart_vpnc" : "stop_vpnc")")
+        if enabled {
+            commands.append("service start_wgc")
+        }
         commands.append(enabled ? connectPolicyCommand(unit: unit) : disconnectCleanupCommand(unit: unit))
 
         return commands

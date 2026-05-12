@@ -24,6 +24,7 @@ import Testing
     #expect(commands.contains { $0.contains("nvram set wgc5_ep_addr_r=\"$resolved_ep\"") })
     #expect(!commands.contains("nvram set wgc5_ep_addr_r=''"))
     #expect(commands.contains { $0.contains("service restart_vpnc") })
+    #expect(commands.contains { $0.contains("service start_wgc") })
     #expect(commands.contains { $0.contains("ip rule add") })
 }
 
@@ -51,8 +52,10 @@ import Testing
     )
 
     let serviceIndex = try #require(commands.firstIndex { $0.contains("service restart_vpnc") })
+    let wireGuardIndex = try #require(commands.firstIndex { $0.contains("service start_wgc") })
     let policyIndex = try #require(commands.firstIndex { $0.contains("sleep 4") && $0.contains("ip rule add") })
     #expect(serviceIndex < policyIndex)
+    #expect(wireGuardIndex < policyIndex)
 }
 
 @Test func statusCommandUsesConfiguredRouteTable() {
@@ -67,9 +70,32 @@ import Testing
 @Test func statusCommandOmitsIPInfoWhenLocationDetailsAreDisabled() {
     let command = SSHRouterClient.statusCommand(unit: 5, includeIPLocations: false, includeResourceUsage: true)
 
+    #expect(!command.contains("ip2location.io"))
     #expect(!command.contains("ipinfo.io"))
     #expect(!command.contains("WAN_IPINFO_BEGIN"))
     #expect(!command.contains("VPN_IPINFO_BEGIN"))
+}
+
+@Test func statusCommandLooksUpLocationByWanIPWithFallbackProvider() {
+    let command = SSHRouterClient.statusCommand(unit: 5, includeIPLocations: true, includeResourceUsage: false)
+
+    #expect(command.contains("wan_lookup_ip=$(nvram get wan0_ipaddr)"))
+    #expect(command.contains("https://api.ip2location.io/?ip=${lookup_ip}"))
+    #expect(command.contains("http://api.ip2location.io/?ip=${lookup_ip}"))
+    #expect(command.contains("https://ipinfo.io/${lookup_ip}/json"))
+    #expect(command.contains("http://ipinfo.io/${lookup_ip}/json"))
+    #expect(!command.contains("https://ipinfo.io/json"))
+}
+
+@Test func localGeolocationURLsPreferIP2LocationWithHTTPFallbacks() throws {
+    let urls = SSHRouterClient.geolocationURLs(for: "203.0.113.10").map(\.absoluteString)
+
+    #expect(urls == [
+        "https://api.ip2location.io/?ip=203.0.113.10",
+        "http://api.ip2location.io/?ip=203.0.113.10",
+        "https://ipinfo.io/203.0.113.10/json",
+        "http://ipinfo.io/203.0.113.10/json"
+    ])
 }
 
 @Test func statusCommandCollectsRouterResourceUsage() {

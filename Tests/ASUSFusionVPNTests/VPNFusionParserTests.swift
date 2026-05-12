@@ -171,6 +171,28 @@ import Testing
     #expect(status.wanLocation == "Example City, Example Region, ZZ")
 }
 
+@Test func routerOutputParsesIP2LocationBlocks() throws {
+    let output = """
+    vpnc_clientlist=Surfshark>Surfshark>5>>>1>5>>>0>0>Web
+    wgc_enable=1
+    vpnc_state=2
+    interface_running=1
+    vpn_route_count=2
+    wan_ip=203.0.113.10
+    WAN_IPINFO_BEGIN
+    {"ip":"203.0.113.10","country_code":"ZZ","country_name":"Example Country","region_name":"Example Region","city_name":"Example City"}
+    WAN_IPINFO_END
+    """
+
+    let status = VPNFusionParser.status(
+        from: output,
+        profileName: "Surfshark",
+        unit: 5
+    )
+
+    #expect(status.wanLocation == "Example City, Example Region, Example Country")
+}
+
 @Test func inactiveProfileWithStaleRuntimeRoutesParsesAsDisconnected() throws {
     let output = """
     vpnc_clientlist=Surfshark>Surfshark>5>>>0>5>>>0>0>Web
@@ -230,6 +252,29 @@ import Testing
     )
 
     #expect(status.state == .connected)
+}
+
+@Test func liveWireGuardRuntimeCountsAsConnectedWhenRouterStateCodeIsBlank() throws {
+    let output = """
+    vpnc_clientlist=Surfshark>Surfshark>5>>>1>5>>>0>0>Web
+    wgc_enable=1
+    vpnc_state=
+    interface_running=1
+    policy_rule_count=5
+    vpn_route_count=5
+    vpn_tunnel_ip=10.0.0.2
+    vpn_endpoint_ip=198.51.100.25
+    """
+
+    let status = VPNFusionParser.status(
+        from: output,
+        profileName: "Surfshark",
+        unit: 5
+    )
+
+    #expect(status.state == .connected)
+    #expect(status.vpnTunnelIP == "10.0.0.2")
+    #expect(status.vpnEndpointIP == "198.51.100.25")
 }
 
 @Test func policyRulesWithoutLiveTunnelDoNotCountAsConnected() throws {
