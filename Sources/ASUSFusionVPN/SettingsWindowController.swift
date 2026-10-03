@@ -594,7 +594,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             showIPLocations: showIPLocationsButton.state == .on
         )
         do {
-            try settings.save()
+            if !ScreenshotDemo.isEnabled {
+                try settings.save()
+            }
         } catch {
             showAlert(message: "Could not save settings: \(error.localizedDescription)")
             return

@@ -6,6 +6,17 @@ This project uses semantic versioning for public releases.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-03
+
+### Added
+
+- Screenshot demo mode: launch with `ASUS_FUSION_VPN_SCREENSHOT_DEMO=menu` or `=settings` to show fixed sample data from the documentation IP ranges. It never contacts a router and never saves settings.
+
+### Changed
+
+- Give Settings, Open Router VPN Page, Refresh Status, and Quit their own symbols so every menu action lines up on current macOS, and match the `Refresh Status` shortcut label to the native shortcuts.
+- Replace the redacted README screenshots with new menu and settings screenshots taken in demo mode.
+
 ## [1.1.0] - 2026-10-03
 
 ### Changed

@@ -18,9 +18,11 @@ private final class MenuActionRowView: NSView {
     private static let buttonRowHeight: CGFloat = 44
     private static let shortcutColumnLeadingFromTrailing: CGFloat = -40
     private static let shortcutColumnWidth: CGFloat = 50
+    private static let symbolCenterX: CGFloat = 21.5
 
     let button: NSButton
     private let shortcutField: NSTextField
+    private let symbolView: NSImageView?
     private let style: Style
     private var buttonBackgroundColor: NSColor?
     private var buttonBorderColor: NSColor?
@@ -46,6 +48,7 @@ private final class MenuActionRowView: NSView {
                 button.contentTintColor = newValue ? .labelColor : .disabledControlTextColor
             }
             shortcutField.textColor = newValue ? .tertiaryLabelColor : .disabledControlTextColor
+            symbolView?.contentTintColor = newValue ? .labelColor : .disabledControlTextColor
         }
     }
 
@@ -53,9 +56,13 @@ private final class MenuActionRowView: NSView {
         title: String,
         shortcut: String = "",
         style: Style = .plain,
-        leadingInset: CGFloat? = nil
+        leadingInset: CGFloat? = nil,
+        symbolName: String? = nil
     ) {
         self.style = style
+        symbolView = symbolName
+            .flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
+            .map { NSImageView(image: $0) }
         button = NSButton(title: title, target: nil, action: nil)
         shortcutField = NSTextField(labelWithString: shortcut)
         let rowHeight = style == .button ? Self.buttonRowHeight : Self.plainRowHeight
@@ -83,6 +90,18 @@ private final class MenuActionRowView: NSView {
 
         addSubview(button)
         addSubview(shortcutField)
+        if let symbolView {
+            // Sits in the same column macOS uses for menu item images, so the title
+            // lines up with native items such as Settings.
+            symbolView.symbolConfiguration = .init(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular)
+            symbolView.contentTintColor = .labelColor
+            symbolView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(symbolView)
+            NSLayoutConstraint.activate([
+                symbolView.centerXAnchor.constraint(equalTo: leadingAnchor, constant: Self.symbolCenterX),
+                symbolView.centerYAnchor.constraint(equalTo: centerYAnchor)
+            ])
+        }
 
         if shortcut.isEmpty {
             shortcutField.isHidden = true
@@ -176,10 +195,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let toggleMenuItem = NSMenuItem()
     private let toggleMenuView = MenuActionRowView(title: "Connect", style: .button)
     private let refreshMenuItem = NSMenuItem()
-    private let refreshMenuView = MenuActionRowView(title: "Refresh Status", shortcut: "⌘ R", leadingInset: 38)
+    private let refreshMenuView = MenuActionRowView(
+        title: "Refresh Status",
+        shortcut: "⌘R",
+        leadingInset: 35.5,
+        symbolName: "arrow.clockwise"
+    )
     private var settingsWindowController: SettingsWindowController?
     private var refreshTimer: Timer?
-    private var settings = AppSettings.load()
+    private var settings = ScreenshotDemo.isEnabled ? ScreenshotDemo.settings : AppSettings.load()
     private var regions: [VPNRegion] = []
     private var lastStatus: VPNStatus?
     private var lastDisplayState: VPNConnectionState?
@@ -197,10 +221,33 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         regions = VPNRegionStore.initialRegions(settings: settings)
         configureStatusItem()
         configureMenu()
+        if let scene = ScreenshotDemo.scene {
+            presentScreenshotDemo(scene)
+            return
+        }
         refreshRegionCatalog()
         refreshStatus()
         startRefreshTimer()
         observeSleepAndWake()
+    }
+
+    private func presentScreenshotDemo(_ scene: ScreenshotDemo.Scene) {
+        handle(
+            result: .success(ScreenshotDemo.status),
+            presentation: .statusRefresh,
+            displayState: nil,
+            followUpDelay: nil
+        )
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            switch scene {
+            case .menu:
+                self?.statusItem.button?.performClick(nil)
+            case .settings:
+                self?.openSettings()
+                self?.settingsWindowController?.window?.makeFirstResponder(nil)
+            }
+        }
     }
 
     func shutdown() {
@@ -209,7 +256,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         routerTask?.cancel()
         wakeObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         wakeObservers = []
-        SSHRouterClient(settings: settings).closeSharedConnection()
+        if !ScreenshotDemo.isEnabled {
+            SSHRouterClient(settings: settings).closeSharedConnection()
+        }
     }
 
     private func startRefreshTimer() {
@@ -288,12 +337,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
+        settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
 
         let routerItem = NSMenuItem(title: "Open Router VPN Page", action: #selector(openRouterPage), keyEquivalent: "o")
         routerItem.target = self
+        routerItem.image = NSImage(systemSymbolName: "network", accessibilityDescription: nil)
 
         let quitItem = NSMenuItem(title: "Quit ASUS Fusion VPN", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
+        quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
 
         menu.addItem(toggleMenuItem)
         menu.addItem(statusMenuItem)
@@ -314,7 +366,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        if StatusRefreshPolicy.shouldRefreshOnMenuOpen(lastRefreshDate: lastRefreshDate) {
+        if !ScreenshotDemo.isEnabled, StatusRefreshPolicy.shouldRefreshOnMenuOpen(lastRefreshDate: lastRefreshDate) {
             refreshStatus()
         }
     }
@@ -524,7 +576,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// Looks up display locations off the main path; the status is shown immediately and
     /// the location rows fill in when a lookup for a new address completes.
     private func resolveLocations(for status: VPNStatus) {
-        guard settings.showIPLocations else { return }
+        guard settings.showIPLocations, !ScreenshotDemo.isEnabled else { return }
         let addresses = [status.wanIP, status.state == .connected ? status.vpnEndpointIP : nil]
             .compactMap { IPLocationResolver.normalizedIPAddress($0) }
             .filter { locationLabels[$0] == nil }

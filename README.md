@@ -10,11 +10,11 @@ The app was built for an ASUS router running VPN Fusion with a Surfshark WireGua
 
 ## Screenshots
 
-The screenshots below intentionally redact local router details, usernames, IP addresses, and location data.
+The screenshots below use the app's built-in screenshot demo mode, so every address comes from the reserved documentation ranges (RFC 5737) rather than a real network.
 
 | Menu bar status | Settings |
 | --- | --- |
-| ![Redacted ASUS Fusion VPN menu bar status menu](docs/assets/screenshots/menu-status-redacted.png) | ![Redacted ASUS Fusion VPN settings window](docs/assets/screenshots/settings-redacted.png) |
+| ![ASUS Fusion VPN menu bar status menu showing a connected Surfshark profile with sample data](docs/assets/screenshots/menu-status.png) | ![ASUS Fusion VPN settings window with sample router settings](docs/assets/screenshots/settings.png) |
 
 ## Features
 
@@ -215,6 +215,13 @@ Scripts/generate-dmg-background.swift DMG background artwork generator
 Scripts/generate-icons.swift App icon generator
 Assets/AppIcon/              App icon (Icon Composer .icon with light/dark/tinted appearances) and PNG fallback
 docs/assets/                 README screenshots and branding images
+```
+
+To retake the README and website screenshots without a router, launch the app in screenshot demo mode. It shows fixed sample data, never contacts a router, and never saves settings:
+
+```zsh
+ASUS_FUSION_VPN_SCREENSHOT_DEMO=menu "dist/ASUS Fusion VPN.app/Contents/MacOS/ASUS Fusion VPN"
+ASUS_FUSION_VPN_SCREENSHOT_DEMO=settings "dist/ASUS Fusion VPN.app/Contents/MacOS/ASUS Fusion VPN"
 ```
 
 Build products are intentionally ignored:
