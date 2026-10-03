@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ASUSFusionVPN
 
@@ -73,18 +74,10 @@ import Testing
     vpnc_state=2
     interface_running=1
     vpn_route_count=2
-    router_epoch=200
-    vpn_latest_handshake=180
     wan_ip=203.0.113.10
     vpn_tunnel_ip=10.0.0.2
     vpn_endpoint_host=us-nyc.prod.surfshark.com
     vpn_endpoint_ip=198.51.100.25
-    WAN_IPINFO_BEGIN
-    {"ip":"203.0.113.10","city":"Example City","region":"Example Region","country":"ZZ"}
-    WAN_IPINFO_END
-    VPN_IPINFO_BEGIN
-    {"ip":"198.51.100.25","city":"New York City","region":"New York","country":"US"}
-    VPN_IPINFO_END
     """
 
     let status = VPNFusionParser.status(
@@ -94,10 +87,10 @@ import Testing
     )
 
     #expect(status.wanIP == "203.0.113.10")
-    #expect(status.wanLocation == "Example City, Example Region, ZZ")
+    #expect(status.wanLocation == nil)
     #expect(status.vpnTunnelIP == "10.0.0.2")
     #expect(status.vpnEndpointIP == "198.51.100.25")
-    #expect(status.vpnLocation == "New York City, New York, US")
+    #expect(status.vpnLocation == "New York, US")
 }
 
 @Test func routerOutputUsesEndpointLocationFallbackWhenIPInfoIsUnavailable() throws {
@@ -146,51 +139,37 @@ import Testing
     #expect(status.routerMemoryPercent == 61)
 }
 
-@Test func routerOutputIgnoresExpectSpawnTranscriptWhenParsingIPInfoBlocks() throws {
-    let output = """
-    spawn ssh router echo WAN_IPINFO_BEGIN; curl https://ipinfo.io/json; echo WAN_IPINFO_END
-    vpnc_clientlist=Surfshark>Surfshark>5>>>1>5>>>0>0>Web
-    wgc_enable=1
-    vpnc_state=2
-    interface_running=1
-    vpn_route_count=2
-    router_epoch=200
-    vpn_latest_handshake=180
-    wan_ip=203.0.113.10
-    WAN_IPINFO_BEGIN
-    {"ip":"203.0.113.10","city":"Example City","region":"Example Region","country":"ZZ"}
-    WAN_IPINFO_END
-    """
+@Test func ipInfoResponseFormatsDisplayLocation() throws {
+    let data = Data(#"{"ip":"203.0.113.10","city":"Example City","region":"Example Region","country":"ZZ"}"#.utf8)
 
-    let status = VPNFusionParser.status(
-        from: output,
-        profileName: "Surfshark",
-        unit: 5
-    )
-
-    #expect(status.wanLocation == "Example City, Example Region, ZZ")
+    #expect(VPNFusionParser.displayLocation(fromIPInfoData: data) == "Example City, Example Region, ZZ")
 }
 
-@Test func routerOutputParsesIP2LocationBlocks() throws {
+@Test func ip2LocationResponseFormatsDisplayLocation() throws {
+    let data = Data(#"{"ip":"203.0.113.10","country_code":"ZZ","country_name":"Example Country","region_name":"Example Region","city_name":"Example City"}"#.utf8)
+
+    #expect(VPNFusionParser.displayLocation(fromIPInfoData: data) == "Example City, Example Region, Example Country")
+}
+
+@Test func routerOutputParsesRawCPUCounters() throws {
     let output = """
-    vpnc_clientlist=Surfshark>Surfshark>5>>>1>5>>>0>0>Web
-    wgc_enable=1
-    vpnc_state=2
-    interface_running=1
-    vpn_route_count=2
-    wan_ip=203.0.113.10
-    WAN_IPINFO_BEGIN
-    {"ip":"203.0.113.10","country_code":"ZZ","country_name":"Example Country","region_name":"Example Region","city_name":"Example City"}
-    WAN_IPINFO_END
+    vpnc_clientlist=Surfshark>Surfshark>5>>>0>5>>>0>0>Web
+    router_cpu_idle=12000000000
+    router_cpu_total=15000000000
     """
 
-    let status = VPNFusionParser.status(
-        from: output,
-        profileName: "Surfshark",
-        unit: 5
-    )
+    let status = VPNFusionParser.status(from: output, profileName: "Surfshark", unit: 5)
 
-    #expect(status.wanLocation == "Example City, Example Region, Example Country")
+    #expect(status.routerCPUSample == RouterCPUSample(idle: 12_000_000_000, total: 15_000_000_000))
+}
+
+@Test func cpuUsageIsDerivedFromConsecutiveSamples() {
+    let first = RouterCPUSample(idle: 800, total: 1000)
+    let second = RouterCPUSample(idle: 1550, total: 2000)
+
+    #expect(second.usagePercent(since: first) == 25)
+    #expect(first.usagePercent(since: second) == nil)
+    #expect(first.usagePercent(since: first) == nil)
 }
 
 @Test func inactiveProfileWithStaleRuntimeRoutesParsesAsDisconnected() throws {

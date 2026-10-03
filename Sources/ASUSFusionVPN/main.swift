@@ -1,5 +1,9 @@
 import AppKit
 
+if let exitCode = AskPass.handleIfRequested() {
+    exit(exitCode)
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuController: MenuBarController?
@@ -10,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        menuController?.shutdown()
         menuController = nil
     }
 }

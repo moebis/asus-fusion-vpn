@@ -3,9 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="ASUS Fusion VPN"
-APP_VERSION="1.0.11"
-APP_BUILD="12"
-BUILD_DIR="$ROOT_DIR/.build/apple/Products/Release"
+APP_VERSION="1.1.0"
+APP_BUILD="13"
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
@@ -20,12 +19,25 @@ DMG_PATH="$DIST_DIR/$APP_NAME.dmg"
 
 cd "$ROOT_DIR"
 swift build -c release --arch arm64 --arch x86_64
+BUILD_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
 
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$BUILD_DIR/$APP_NAME" "$MACOS_DIR/$APP_NAME"
-swift "$ROOT_DIR/Scripts/generate-icons.swift" "$RESOURCES_DIR" "$ROOT_DIR/Assets/AppIcon/asus-fusion-vpn-icon-source.png"
+ICON_SOURCE="$ROOT_DIR/Assets/AppIcon/AppIcon.icon"
+if [ -d "$ICON_SOURCE" ] && xcrun --find actool >/dev/null 2>&1; then
+  # Icon Composer icon: Assets.car with light/dark/tinted appearances plus an
+  # AppIcon.icns fallback for macOS releases before Icon Composer icons.
+  xcrun actool "$ICON_SOURCE" \
+    --compile "$RESOURCES_DIR" \
+    --platform macosx \
+    --minimum-deployment-target 14.0 \
+    --app-icon AppIcon \
+    --output-partial-info-plist "$ROOT_DIR/.build/AppIcon-partial.plist" >/dev/null
+else
+  swift "$ROOT_DIR/Scripts/generate-icons.swift" "$RESOURCES_DIR" "$ROOT_DIR/Assets/AppIcon/asus-fusion-vpn-icon-source.png"
+fi
 
 cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -41,6 +53,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key>
   <string>ASUS Fusion VPN</string>
   <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleIconName</key>
   <string>AppIcon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>

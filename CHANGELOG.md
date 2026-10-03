@@ -6,6 +6,25 @@ This project uses semantic versioning for public releases.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-03
+
+### Changed
+
+- Reuse one authenticated SSH connection (OpenSSH multiplexing) for status polling and VPN actions instead of a full SSH login every 30 seconds. Falls back automatically if the router refuses shared sessions.
+- Replace the `/usr/bin/expect` wrapper with an `SSH_ASKPASS` helper served by the app itself, which only answers password prompts.
+- Run SSH commands asynchronously with continuous output draining, cancellation, and a hard timeout, instead of blocking background threads with semaphores and sleeps.
+- Status refreshes no longer make the router call external geolocation services or sleep for a CPU sample. The Mac looks up IP locations over HTTPS with a per-address cache, and router CPU usage is computed between polls.
+- Connecting and disconnecting read only the client list before applying changes and poll a lightweight status while waiting for the tunnel.
+- Pause polling while the Mac sleeps, refresh after wake, refresh when the menu opens with stale data, and let macOS coalesce the polling timer.
+- New shield-and-padlock menu bar icon: solid shield when connected, outline with a closed lock while connecting, dimmed open lock when disconnected, and an empty shield when the state is unknown.
+- New shield-and-padlock app icon, built with Icon Composer so macOS renders light, dark, and tinted appearances (with an `.icns` fallback for macOS 14 and 15).
+
+### Fixed
+
+- Quote the SSH known_hosts path so the `Application Support` space no longer splits it into several files.
+- Show a clear message when the router rejects the SSH username or password, and fail after one password attempt instead of three.
+- Fix the release build script for SwiftPM toolchains that use a different build products path.
+
 ## [1.0.11] - 2026-05-12
 
 ### Fixed

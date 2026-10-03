@@ -57,6 +57,7 @@ private func testStatus(
         vpnLocation: state == .connected ? "New York, US" : nil,
         policyRuleCount: state == .connected ? 2 : 0,
         vpnRouteCount: state == .connected ? 2 : 0,
+        routerCPUSample: nil,
         routerCPUPercent: routerCPUPercent,
         routerMemoryUsedMB: 300,
         routerMemoryTotalMB: 512,

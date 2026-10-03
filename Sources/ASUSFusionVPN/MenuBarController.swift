@@ -1,10 +1,5 @@
 import AppKit
 
-private enum RouterTaskResult: Sendable {
-    case success(VPNStatus, displayState: VPNConnectionState?, followUpDelay: TimeInterval?)
-    case failure(String)
-}
-
 private enum ToggleButtonAppearance {
     static let disconnectedBackground = NSColor.clear
     static let disconnectedBorder = NSColor(calibratedWhite: 0.34, alpha: 1)
@@ -167,7 +162,7 @@ private final class MenuActionRowView: NSView {
 }
 
 @MainActor
-final class MenuBarController: NSObject {
+final class MenuBarController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let menu = NSMenu()
     private let statusMenuItem = NSMenuItem(title: "Status: Checking...", action: nil, keyEquivalent: "")
@@ -183,14 +178,19 @@ final class MenuBarController: NSObject {
     private let refreshMenuItem = NSMenuItem()
     private let refreshMenuView = MenuActionRowView(title: "Refresh Status", shortcut: "⌘ R", leadingInset: 38)
     private var settingsWindowController: SettingsWindowController?
-    private var timer: Timer?
+    private var refreshTimer: Timer?
     private var settings = AppSettings.load()
     private var regions: [VPNRegion] = []
     private var lastStatus: VPNStatus?
     private var lastDisplayState: VPNConnectionState?
     private var lastToggleProfileName: String?
+    private var lastRefreshDate: Date?
+    private var lastCPUSample: RouterCPUSample?
+    private var locationLabels: [String: String] = [:]
     private var isBusy = false
-    private var pendingFollowUpRefresh: DispatchWorkItem?
+    private var routerTask: Task<Void, Never>?
+    private var followUpRefreshTask: Task<Void, Never>?
+    private var wakeObservers: [NSObjectProtocol] = []
 
     override init() {
         super.init()
@@ -199,14 +199,59 @@ final class MenuBarController: NSObject {
         configureMenu()
         refreshRegionCatalog()
         refreshStatus()
+        startRefreshTimer()
+        observeSleepAndWake()
+    }
 
-        let refreshTimer = Timer(timeInterval: StatusRefreshPolicy.regularRefreshInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+    func shutdown() {
+        refreshTimer?.invalidate()
+        followUpRefreshTask?.cancel()
+        routerTask?.cancel()
+        wakeObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        wakeObservers = []
+        SSHRouterClient(settings: settings).closeSharedConnection()
+    }
+
+    private func startRefreshTimer() {
+        refreshTimer?.invalidate()
+        let timer = Timer(timeInterval: StatusRefreshPolicy.regularRefreshInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
                 self?.refreshStatus()
             }
         }
-        timer = refreshTimer
-        RunLoop.main.add(refreshTimer, forMode: StatusRefreshPolicy.regularRefreshRunLoopMode)
+        // Let macOS coalesce the wake-up with other timers to save energy.
+        timer.tolerance = StatusRefreshPolicy.regularRefreshTolerance
+        RunLoop.main.add(timer, forMode: StatusRefreshPolicy.regularRefreshRunLoopMode)
+        refreshTimer = timer
+    }
+
+    private func observeSleepAndWake() {
+        let center = NSWorkspace.shared.notificationCenter
+        wakeObservers.append(center.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.refreshTimer?.invalidate()
+                self.refreshTimer = nil
+                self.cancelFollowUpRefresh()
+                SSHRouterClient(settings: self.settings).closeSharedConnection()
+            }
+        })
+        wakeObservers.append(center.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.startRefreshTimer()
+                // Give Wi-Fi a moment to reassociate before talking to the router.
+                self.scheduleFollowUpRefresh(after: StatusRefreshPolicy.wakeRefreshDelay)
+            }
+        })
     }
 
     private func configureStatusItem() {
@@ -217,6 +262,7 @@ final class MenuBarController: NSObject {
 
     private func configureMenu() {
         menu.autoenablesItems = false
+        menu.delegate = self
         updateToggleButton(for: .unknown)
         toggleMenuView.button.target = self
         toggleMenuView.button.action = #selector(toggleVPN)
@@ -267,12 +313,18 @@ final class MenuBarController: NSObject {
         menu.addItem(quitItem)
     }
 
+    func menuWillOpen(_ menu: NSMenu) {
+        if StatusRefreshPolicy.shouldRefreshOnMenuOpen(lastRefreshDate: lastRefreshDate) {
+            refreshStatus()
+        }
+    }
+
     @objc private func refreshStatus() {
         runRouterTask(
             busyTitle: "Status: Checking...",
             presentation: .statusRefresh
         ) { client in
-            try client.status()
+            try await client.status()
         }
     }
 
@@ -288,7 +340,7 @@ final class MenuBarController: NSObject {
             busyButtonTitle: shouldConnect ? "Connecting to \(settings.profileName)..." : "Disconnecting from \(settings.profileName)...",
             followUpDelay: StatusRefreshPolicy.toggleFollowUpRefreshDelay
         ) { client in
-            try client.setEnabled(shouldConnect)
+            try await client.setEnabled(shouldConnect)
         }
     }
 
@@ -300,8 +352,8 @@ final class MenuBarController: NSObject {
             resultDisplayState: .connecting,
             followUpDelay: StatusRefreshPolicy.toggleFollowUpRefreshDelay
         ) { client in
-            _ = try client.setEnabled(false)
-            return try client.setEnabled(true)
+            _ = try await client.setEnabled(false)
+            return try await client.setEnabled(true)
         }
     }
 
@@ -321,10 +373,18 @@ final class MenuBarController: NSObject {
                 currentEndpointHost: self.lastStatus?.vpnEndpointHost
             )
 
+            if StatusRefreshPolicy.connectionSettingsChanged(from: oldSettings, to: newSettings) {
+                // Drop the shared SSH session so new credentials are actually used.
+                SSHRouterClient(settings: oldSettings).closeSharedConnection()
+                self.lastCPUSample = nil
+            }
             self.settings = newSettings
             self.regions = VPNRegionStore.initialRegions(settings: newSettings)
             self.refreshStatusMenuTitle()
             self.refreshToggleButtonTitle()
+            if let lastStatus = self.lastStatus {
+                self.updateNetworkItems(for: self.displayStatus(lastStatus))
+            }
 
             switch action {
             case .refresh:
@@ -360,7 +420,7 @@ final class MenuBarController: NSObject {
         resultDisplayState: VPNConnectionState? = nil,
         followUpDelay: TimeInterval? = nil,
         presentation: RouterTaskPresentation = .visibleAction,
-        task: @Sendable @escaping (SSHRouterClient) throws -> VPNStatus
+        task: @Sendable @escaping (SSHRouterClient) async throws -> VPNStatus
     ) {
         guard !isBusy else { return }
         if presentation.appliesBusyState {
@@ -386,42 +446,51 @@ final class MenuBarController: NSObject {
             statusItem.button?.image = IconFactory.menuBarIcon(state: busyIconState)
         }
 
-        let currentSettings = settings
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result: RouterTaskResult
+        let client = SSHRouterClient(settings: settings)
+        routerTask = Task { [weak self] in
+            let result: Result<VPNStatus, Error>
             do {
-                result = .success(
-                    try task(SSHRouterClient(settings: currentSettings)),
-                    displayState: resultDisplayState,
-                    followUpDelay: followUpDelay
-                )
+                result = .success(try await task(client))
             } catch {
-                result = .failure(error.localizedDescription)
+                result = .failure(error)
             }
-
-            Task { @MainActor [weak self] in
-                self?.handle(result: result, presentation: presentation)
-            }
+            self?.handle(
+                result: result,
+                presentation: presentation,
+                displayState: resultDisplayState,
+                followUpDelay: followUpDelay
+            )
         }
     }
 
-    private func handle(result: RouterTaskResult, presentation: RouterTaskPresentation) {
+    private func handle(
+        result: Result<VPNStatus, Error>,
+        presentation: RouterTaskPresentation,
+        displayState: VPNConnectionState?,
+        followUpDelay: TimeInterval?
+    ) {
         isBusy = false
+        routerTask = nil
         if presentation.disablesControls {
             toggleMenuView.isEnabled = true
             refreshMenuView.isEnabled = true
         }
 
         switch result {
-        case .success(let status, let displayState, let followUpDelay):
+        case .success(var status):
+            lastRefreshDate = Date()
+            applyCPUUsage(to: &status)
             updateMenu(for: status, displayState: displayState)
             lastStatus = status
+            resolveLocations(for: status)
             scheduleFollowUpRefreshIfNeeded(
                 after: displayState ?? status.state,
                 forcedDelay: followUpDelay
             )
-        case .failure(let message):
+        case .failure(let error):
+            if error is CancellationError {
+                return
+            }
             if presentation.appliesBusyState {
                 cancelFollowUpRefresh()
             }
@@ -439,9 +508,49 @@ final class MenuBarController: NSObject {
                 statusItem.button?.toolTip = "ASUS Fusion VPN - Unknown"
             }
             if presentation.showsFailureAlert {
-                showError(message)
+                showError(error.localizedDescription)
             }
         }
+    }
+
+    /// Router CPU usage is the busy share of jiffies between this poll and the previous one.
+    private func applyCPUUsage(to status: inout VPNStatus) {
+        guard let sample = status.routerCPUSample else { return }
+        status.routerCPUPercent = lastCPUSample.flatMap { sample.usagePercent(since: $0) }
+            ?? lastStatus?.routerCPUPercent
+        lastCPUSample = sample
+    }
+
+    /// Looks up display locations off the main path; the status is shown immediately and
+    /// the location rows fill in when a lookup for a new address completes.
+    private func resolveLocations(for status: VPNStatus) {
+        guard settings.showIPLocations else { return }
+        let addresses = [status.wanIP, status.state == .connected ? status.vpnEndpointIP : nil]
+            .compactMap { IPLocationResolver.normalizedIPAddress($0) }
+            .filter { locationLabels[$0] == nil }
+
+        for address in addresses {
+            Task { [weak self] in
+                guard let location = await IPLocationResolver.shared.location(for: address) else { return }
+                guard let self else { return }
+                self.locationLabels[address] = location
+                if let lastStatus = self.lastStatus, lastStatus.wanIP == address || lastStatus.vpnEndpointIP == address {
+                    self.updateNetworkItems(for: self.displayStatus(lastStatus))
+                }
+            }
+        }
+    }
+
+    private func displayStatus(_ status: VPNStatus) -> VPNStatus {
+        guard settings.showIPLocations else { return status }
+        var status = status
+        if let wanIP = status.wanIP, let location = locationLabels[wanIP] {
+            status.wanLocation = location
+        }
+        if let endpointIP = status.vpnEndpointIP, let location = locationLabels[endpointIP] {
+            status.vpnLocation = location
+        }
+        return status
     }
 
     private func scheduleFollowUpRefreshIfNeeded(
@@ -453,26 +562,29 @@ final class MenuBarController: NSObject {
         guard let delay = forcedDelay ?? StatusRefreshPolicy.followUpRefreshDelay(after: state) else {
             return
         }
+        scheduleFollowUpRefresh(after: delay)
+    }
 
-        let workItem = DispatchWorkItem { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.refreshStatus()
-            }
+    private func scheduleFollowUpRefresh(after delay: TimeInterval) {
+        cancelFollowUpRefresh()
+        followUpRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            self?.followUpRefreshTask = nil
+            self?.refreshStatus()
         }
-        pendingFollowUpRefresh = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     private func cancelFollowUpRefresh() {
-        pendingFollowUpRefresh?.cancel()
-        pendingFollowUpRefresh = nil
+        followUpRefreshTask?.cancel()
+        followUpRefreshTask = nil
     }
 
     private func updateMenu(for status: VPNStatus, displayState: VPNConnectionState? = nil) {
         let resolvedDisplayState = displayState ?? status.state
         if StatusDisplayUpdatePolicy.shouldUpdateStatusDetails(previousStatus: lastStatus, nextStatus: status) {
             setStatusTitle(for: status)
-            updateNetworkItems(for: status)
+            updateNetworkItems(for: displayStatus(status))
         }
         if StatusDisplayUpdatePolicy.shouldUpdateStateChrome(
             previousDisplayState: lastDisplayState,
@@ -630,6 +742,7 @@ final class MenuBarController: NSObject {
         alert.messageText = "ASUS Fusion VPN"
         alert.informativeText = message
         alert.alertStyle = .warning
+        NSApp.activate()
         alert.runModal()
     }
 }

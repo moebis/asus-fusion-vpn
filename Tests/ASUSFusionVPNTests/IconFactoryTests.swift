@@ -3,17 +3,42 @@ import Testing
 @testable import ASUSFusionVPN
 
 @MainActor
+@Test func menuBarIconsAreCachedTemplateImages() {
+    for state in [VPNConnectionState.connected, .connecting, .disconnected, .unknown] {
+        let image = IconFactory.menuBarIcon(state: state)
+        #expect(image.isTemplate)
+        #expect(image === IconFactory.menuBarIcon(state: state))
+    }
+}
+
+@MainActor
 @Test func connectedMenuBarIconUsesFullOpacityTemplatePixels() throws {
-    let image = IconFactory.menuBarIcon(state: .connected)
-    let alphas = try renderedAlphaValues(from: image)
+    let alphas = try renderedAlphaValues(from: IconFactory.menuBarIcon(state: .connected))
 
     #expect(alphas.max() == 255)
 }
 
+private let lockBodySamplePoint = NSPoint(x: IconFactory.lockBody.minX + 1, y: IconFactory.lockBody.minY + 1)
+
+@MainActor
+@Test func connectedMenuBarIconKnocksOutLockFromSolidShield() throws {
+    let alphaGrid = try renderedAlphaGrid(from: IconFactory.menuBarIcon(state: .connected))
+
+    #expect(alpha(in: alphaGrid, at: lockBodySamplePoint) < 40)
+    // Shield body below the lock stays solid.
+    #expect(alpha(in: alphaGrid, at: NSPoint(x: 9, y: 3)) > 240)
+}
+
+@MainActor
+@Test func connectingMenuBarIconDrawsSolidLock() throws {
+    let alphaGrid = try renderedAlphaGrid(from: IconFactory.menuBarIcon(state: .connecting))
+
+    #expect(alpha(in: alphaGrid, at: lockBodySamplePoint) > 240)
+}
+
 @MainActor
 @Test func disconnectedMenuBarIconUsesReducedOpacityTemplatePixels() throws {
-    let image = IconFactory.menuBarIcon(state: .disconnected)
-    let alphas = try renderedAlphaValues(from: image)
+    let alphas = try renderedAlphaValues(from: IconFactory.menuBarIcon(state: .disconnected))
 
     #expect((alphas.max() ?? 0) < 180)
     #expect((alphas.max() ?? 0) > 0)
@@ -21,21 +46,17 @@ import Testing
 
 @MainActor
 @Test func disconnectedMenuBarIconDoesNotStackOpacityAtShapeOverlaps() throws {
-    let image = IconFactory.menuBarIcon(state: .disconnected)
-    let alphas = try renderedAlphaValues(from: image)
-    let solidPixels = alphas.filter { $0 > 120 }
+    let alphas = try renderedAlphaValues(from: IconFactory.menuBarIcon(state: .disconnected))
+    let strongest = alphas.max() ?? 0
 
-    #expect((solidPixels.max() ?? 0) - (solidPixels.min() ?? 0) <= 10)
+    #expect(strongest <= Int((255 * 0.42).rounded()) + 2)
 }
 
 @MainActor
-@Test func connectedMenuBarIconIncludesNodePads() throws {
-    let image = IconFactory.menuBarIcon(state: .connected)
-    let alphaGrid = try renderedAlphaGrid(from: image)
+@Test func unknownMenuBarIconOmitsLock() throws {
+    let alphaGrid = try renderedAlphaGrid(from: IconFactory.menuBarIcon(state: .unknown))
 
-    #expect(opaquePixelCount(in: alphaGrid, centerX: 5, centerY: 15) >= 16)
-    #expect(opaquePixelCount(in: alphaGrid, centerX: 10, centerY: 4) >= 16)
-    #expect(opaquePixelCount(in: alphaGrid, centerX: 15, centerY: 15) >= 16)
+    #expect(alpha(in: alphaGrid, at: lockBodySamplePoint) == 0)
 }
 
 @MainActor
@@ -45,7 +66,7 @@ private func renderedAlphaValues(from image: NSImage) throws -> [Int] {
 
 @MainActor
 private func renderedAlphaGrid(from image: NSImage) throws -> [[Int]] {
-    let size = NSSize(width: 20, height: 20)
+    let size = IconFactory.menuBarIconSize
     guard
         let representation = NSBitmapImageRep(
             bitmapDataPlanes: nil,
@@ -75,13 +96,9 @@ private func renderedAlphaGrid(from image: NSImage) throws -> [[Int]] {
     }
 }
 
-private func opaquePixelCount(in alphaGrid: [[Int]], centerX: Int, centerY: Int) -> Int {
-    let yRange = max(0, centerY - 2)...min(alphaGrid.count - 1, centerY + 2)
-    let xRange = max(0, centerX - 2)...min((alphaGrid.first?.count ?? 1) - 1, centerX + 2)
-
-    return yRange.reduce(0) { count, y in
-        count + xRange.filter { alphaGrid[y][$0] > 240 }.count
-    }
+/// Reads the alpha at a point in the icon's bottom-left-origin coordinate space.
+private func alpha(in alphaGrid: [[Int]], at point: NSPoint) -> Int {
+    alphaGrid[alphaGrid.count - 1 - Int(point.y)][Int(point.x)]
 }
 
 private struct TestError: Error {

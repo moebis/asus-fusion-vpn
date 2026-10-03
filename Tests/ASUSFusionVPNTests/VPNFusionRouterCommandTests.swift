@@ -59,7 +59,7 @@ import Testing
 }
 
 @Test func statusCommandUsesConfiguredRouteTable() {
-    let command = SSHRouterClient.statusCommand(unit: 7, includeIPLocations: true, includeResourceUsage: true)
+    let command = SSHRouterClient.statusCommand(unit: 7, includeResourceUsage: true)
 
     #expect(command.contains("lookup 7"))
     #expect(command.contains("table 7"))
@@ -67,52 +67,83 @@ import Testing
     #expect(!command.contains("table 5"))
 }
 
-@Test func statusCommandOmitsIPInfoWhenLocationDetailsAreDisabled() {
-    let command = SSHRouterClient.statusCommand(unit: 5, includeIPLocations: false, includeResourceUsage: true)
+@Test func statusCommandDoesNotCallExternalServicesOrSleepOnRouter() {
+    let command = SSHRouterClient.statusCommand(unit: 5, includeResourceUsage: true)
 
+    #expect(!command.contains("curl"))
     #expect(!command.contains("ip2location.io"))
     #expect(!command.contains("ipinfo.io"))
-    #expect(!command.contains("WAN_IPINFO_BEGIN"))
-    #expect(!command.contains("VPN_IPINFO_BEGIN"))
+    #expect(!command.contains("sleep"))
+    #expect(!command.contains("/tmp/"))
 }
 
-@Test func statusCommandLooksUpLocationByWanIPWithFallbackProvider() {
-    let command = SSHRouterClient.statusCommand(unit: 5, includeIPLocations: true, includeResourceUsage: false)
-
-    #expect(command.contains("wan_lookup_ip=$(nvram get wan0_ipaddr)"))
-    #expect(command.contains("https://api.ip2location.io/?ip=${lookup_ip}"))
-    #expect(command.contains("http://api.ip2location.io/?ip=${lookup_ip}"))
-    #expect(command.contains("https://ipinfo.io/${lookup_ip}/json"))
-    #expect(command.contains("http://ipinfo.io/${lookup_ip}/json"))
-    #expect(!command.contains("https://ipinfo.io/json"))
-}
-
-@Test func localGeolocationURLsPreferIP2LocationWithHTTPFallbacks() throws {
-    let urls = SSHRouterClient.geolocationURLs(for: "203.0.113.10").map(\.absoluteString)
+@Test func geolocationURLsPreferIP2LocationOverHTTPS() throws {
+    let urls = IPLocationResolver.geolocationURLs(for: "203.0.113.10").map(\.absoluteString)
 
     #expect(urls == [
         "https://api.ip2location.io/?ip=203.0.113.10",
-        "http://api.ip2location.io/?ip=203.0.113.10",
-        "https://ipinfo.io/203.0.113.10/json",
-        "http://ipinfo.io/203.0.113.10/json"
+        "https://ipinfo.io/203.0.113.10/json"
     ])
 }
 
-@Test func statusCommandCollectsRouterResourceUsage() {
-    let command = SSHRouterClient.statusCommand(unit: 5, includeIPLocations: false, includeResourceUsage: true)
+@Test func geolocationOnlyAcceptsIPv4Addresses() {
+    #expect(IPLocationResolver.normalizedIPAddress(" 203.0.113.10\n") == "203.0.113.10")
+    #expect(IPLocationResolver.normalizedIPAddress("") == nil)
+    #expect(IPLocationResolver.normalizedIPAddress(nil) == nil)
+    #expect(IPLocationResolver.normalizedIPAddress("203.0.113.10/json?x") == nil)
+}
+
+@Test func statusCommandCollectsRawRouterResourceCounters() {
+    let command = SSHRouterClient.statusCommand(unit: 5, includeResourceUsage: true)
 
     #expect(command.contains("/proc/stat"))
     #expect(command.contains("/proc/meminfo"))
-    #expect(command.contains("router_cpu_percent="))
+    #expect(command.contains("router_cpu_idle="))
+    #expect(command.contains("router_cpu_total="))
     #expect(command.contains("router_memory_percent="))
 }
 
 @Test func statusCommandCanSkipRouterResourceUsageForFastPolling() {
-    let command = SSHRouterClient.statusCommand(unit: 5, includeIPLocations: false, includeResourceUsage: false)
+    let command = SSHRouterClient.statusCommand(unit: 5, includeResourceUsage: false)
 
     #expect(!command.contains("/proc/stat"))
     #expect(!command.contains("/proc/meminfo"))
-    #expect(!command.contains("sleep 1"))
     #expect(command.contains("vpnc_clientlist"))
     #expect(command.contains("vpn_route_count"))
+}
+
+@Test func sshArgumentsQuotePathsAndEnableMultiplexing() {
+    let arguments = SSHRouterClient.sshArguments(
+        port: 2222,
+        target: "admin@192.168.1.1",
+        knownHostsPath: "/Users/me/Library/Application Support/ASUS Fusion VPN/known_hosts",
+        controlPath: "/tmp/afv-abc.sock",
+        command: "true"
+    )
+
+    #expect(arguments.contains("UserKnownHostsFile=\"/Users/me/Library/Application Support/ASUS Fusion VPN/known_hosts\""))
+    #expect(arguments.contains("ControlMaster=auto"))
+    #expect(arguments.contains("ControlPath=\"/tmp/afv-abc.sock\""))
+    #expect(arguments.contains("NumberOfPasswordPrompts=1"))
+    #expect(Array(arguments.suffix(3)) == ["--", "admin@192.168.1.1", "true"])
+}
+
+@Test func sshArgumentsCanDisableMultiplexing() {
+    let arguments = SSHRouterClient.sshArguments(
+        port: 22,
+        target: "admin@192.168.1.1",
+        knownHostsPath: "/tmp/known_hosts",
+        controlPath: nil,
+        command: "true"
+    )
+
+    #expect(arguments.contains("ControlMaster=no"))
+    #expect(arguments.contains("ControlPath=none"))
+    #expect(!arguments.contains { $0.hasPrefix("ControlPersist") })
+}
+
+@Test func multiplexingFailuresAreRecognized() {
+    #expect(SSHRouterClient.isMultiplexingFailure("mux_client_request_session: session request failed: Session open refused by peer"))
+    #expect(SSHRouterClient.isMultiplexingFailure("ControlSocket /tmp/x already exists, disabling multiplexing"))
+    #expect(!SSHRouterClient.isMultiplexingFailure("admin@192.168.1.1: Permission denied (password)."))
 }

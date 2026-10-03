@@ -17,3 +17,16 @@ import Testing
 @Test func regularRefreshTimerRunsInCommonModes() {
     #expect(StatusRefreshPolicy.regularRefreshRunLoopMode == .common)
 }
+
+@Test func menuOpenRefreshesOnlyWhenStatusIsStale() {
+    let now = Date()
+
+    #expect(StatusRefreshPolicy.shouldRefreshOnMenuOpen(lastRefreshDate: nil, now: now))
+    #expect(!StatusRefreshPolicy.shouldRefreshOnMenuOpen(lastRefreshDate: now.addingTimeInterval(-3), now: now))
+    #expect(StatusRefreshPolicy.shouldRefreshOnMenuOpen(lastRefreshDate: now.addingTimeInterval(-15), now: now))
+}
+
+@Test func regularRefreshTimerAllowsCoalescing() {
+    #expect(StatusRefreshPolicy.regularRefreshTolerance > 0)
+    #expect(StatusRefreshPolicy.regularRefreshTolerance < StatusRefreshPolicy.regularRefreshInterval)
+}

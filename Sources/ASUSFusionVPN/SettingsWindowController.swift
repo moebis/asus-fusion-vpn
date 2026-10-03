@@ -448,15 +448,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         )
 
         setVPNUnitSearchInProgress(true)
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                try SSHRouterClient(settings: settings).vpnFusionProfiles()
+        Task { [weak self] in
+            let result: Result<[VPNFusionProfile], Error>
+            do {
+                result = .success(try await SSHRouterClient(settings: settings).vpnFusionProfiles())
+            } catch {
+                result = .failure(error)
             }
-
-            Task { @MainActor [weak self] in
-                self?.setVPNUnitSearchInProgress(false)
-                self?.handleVPNUnitSearchResult(result, preferredProfileName: profileName)
-            }
+            self?.setVPNUnitSearchInProgress(false)
+            self?.handleVPNUnitSearchResult(result, preferredProfileName: profileName)
         }
     }
 

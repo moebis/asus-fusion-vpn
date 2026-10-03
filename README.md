@@ -18,9 +18,9 @@ The screenshots below intentionally redact local router details, usernames, IP a
 
 ## Features
 
-- Menu bar status icon with connected, connecting, disconnected, and unknown states.
+- Shield-and-padlock menu bar icon with distinct connected (solid shield), connecting (closed lock), disconnected (dimmed open lock), and unknown (empty shield) states that adapt to light and dark menu bars.
 - One-click connect/disconnect for a configured VPN Fusion profile.
-- Router status refresh every 30 seconds, with faster follow-up refreshes while the VPN is connecting.
+- Router status refresh every 30 seconds over one reused SSH connection, a fresh read when you open the menu, faster follow-up refreshes while the VPN is connecting, and paused polling while the Mac sleeps.
 - Surfshark region picker backed by Surfshark's public cluster catalog.
 - Favorite regions sorted to the top of the region picker.
 - Region changes can reconnect an active VPN profile automatically.
@@ -36,8 +36,8 @@ The screenshots below intentionally redact local router details, usernames, IP a
 - An ASUSWRT router reachable from your Mac over LAN SSH.
 - SSH enabled on the router for LAN access.
 - A VPN Fusion WireGuard client profile already configured on the router.
-- Router shell tools used by the app commands: `nvram`, `service`, `ip`, `wg`, `ifconfig`, `nslookup`, `awk`, and `curl`.
-- macOS `/usr/bin/ssh` and `/usr/bin/expect`.
+- Router shell tools used by the app commands: `nvram`, `service`, `ip`, `wg`, `ifconfig`, `nslookup`, and `awk`.
+- macOS `/usr/bin/ssh` (OpenSSH 8.4 or newer, included with macOS 14+).
 
 ## Defaults
 
@@ -157,9 +157,11 @@ In this example, the VPN unit is `5`. ASUSWRT stores profile data as `>` separat
 
 The app reads router state with SSH commands that inspect ASUSWRT `nvram`, the `wgc<unit>` WireGuard interface, the route table matching the configured VPN unit, policy rules, `/proc/stat`, `/proc/meminfo`, and optional display-only IP location responses.
 
-When `Show IP location details` is enabled, the app looks up the router WAN IP and VPN endpoint IP with IP2Location first, then falls back to ipinfo. It asks the router to perform the lookup during status refresh, and can fall back to a local macOS lookup if the router returns an IP address without location details.
+Status refreshes only read local router state; the router never makes outbound requests for the app. When `Show IP location details` is enabled, the Mac looks up the router WAN IP and VPN endpoint IP over HTTPS with IP2Location first, then ipinfo. Each address is looked up once and cached, so the lookup services are only contacted when an address changes. Router CPU usage is measured between consecutive polls, so a refresh never has to wait on the router.
 
-Each status refresh or VPN action opens a short-lived SSH process, runs one command batch, and exits. The app does not keep persistent SSH sessions open. The SSH helper has an expect timeout and the macOS process wrapper also enforces a hard timeout so a wedged router command does not leave the app waiting forever.
+SSH uses OpenSSH connection multiplexing. The first command authenticates and keeps one quiet master connection open; later refreshes and actions reuse it, so the router does not perform a full key exchange and password login (and log a new session) every 30 seconds. The shared connection closes after 2 idle minutes, when the Mac sleeps, when router connection settings change, and when the app quits. If the router firmware refuses shared sessions, the app automatically falls back to one connection per command. Every SSH command runs asynchronously with a hard timeout, so a wedged router command never blocks the app.
+
+The router password is handed to `ssh` through `SSH_ASKPASS`, served by the app's own executable, which only answers password prompts.
 
 The app uses OpenSSH host-key handling with `StrictHostKeyChecking=accept-new`. Like normal SSH trust-on-first-use, the very first connection assumes your LAN is trustworthy. If you want to verify the router key before first use, run:
 
@@ -211,7 +213,7 @@ LICENSE                      MIT license
 Scripts/build-app.sh         Release app bundle builder
 Scripts/generate-dmg-background.swift DMG background artwork generator
 Scripts/generate-icons.swift App icon generator
-Assets/AppIcon/              Source icon image
+Assets/AppIcon/              App icon (Icon Composer .icon with light/dark/tinted appearances) and PNG fallback
 docs/assets/                 README screenshots and branding images
 ```
 
@@ -231,6 +233,7 @@ dist/
 - Status stays `Connecting`: the profile is active, but the app has not seen the live WireGuard interface or VPN routes yet.
 - Router status works but location is unavailable: confirm `Show IP location details` is turned on. Location display depends on IP2Location or ipinfo being reachable from the router or from macOS for the local fallback.
 - Build errors mention the old project path: run `swift package clean` and build again. This can happen after copying the project to a new folder.
+- `swift test` fails with `resource fork, Finder information, or similar detritus not allowed`: the checkout is in an iCloud/File Provider folder such as `~/Documents`. Build outside it, for example `swift test --scratch-path /tmp/asus-fusion-vpn-build`.
 - App cannot control the profile: confirm the VPN Fusion unit number matches the router profile and review the generated router commands.
 
 ## Privacy and Safety
@@ -239,9 +242,9 @@ This app is intentionally small and local:
 
 - It does not collect analytics.
 - It does not expose a local HTTP server.
-- It does not run a separate daemon.
+- It does not run a separate daemon. The only background helper is the short-lived OpenSSH master connection described above.
 - It connects to Surfshark's public cluster API to refresh region choices.
-- If `Show IP location details` is enabled, it uses IP2Location and ipinfo for display-only IP/location labels.
+- If `Show IP location details` is enabled, it uses IP2Location and ipinfo over HTTPS for display-only IP/location labels, cached per address.
 - It stores the router password in app preferences so the app can run without Keychain prompts.
 
 The app changes router VPN state over SSH. Use it only with a router and profile you control.

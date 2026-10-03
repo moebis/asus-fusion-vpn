@@ -9,11 +9,7 @@ struct VPNFusionProfile: Equatable, Sendable {
 
 enum VPNFusionParser {
     static func status(from output: String, profileName: String, unit: Int) -> VPNStatus {
-        let cleanedOutput = output
-            .components(separatedBy: .newlines)
-            .filter { !$0.hasPrefix("spawn ") }
-            .joined(separator: "\n")
-        let values = parseKeyValues(cleanedOutput)
+        let values = parseKeyValues(output)
         let clientList = values["vpnc_clientlist"] ?? ""
         let activeFlag = activeFlag(in: clientList, unit: unit)
         let stateCode = values["vpnc_state"] ?? ""
@@ -21,19 +17,22 @@ enum VPNFusionParser {
         let policyRuleCount = Int(values["policy_rule_count"] ?? "") ?? 0
         let vpnRouteCount = Int(values["vpn_route_count"] ?? "") ?? 0
         let runtimeVPNActive = interfaceRunning || vpnRouteCount > 0
-        let wanInfo = ipInfoBlock(named: "WAN_IPINFO", in: cleanedOutput)
-        let vpnInfo = ipInfoBlock(named: "VPN_IPINFO", in: cleanedOutput)
-        let vpnEndpointHost = values["vpn_endpoint_host"]
+        let vpnEndpointHost = firstNonEmpty(values["vpn_endpoint_host"])
 
         let state: VPNConnectionState
         if !activeFlag {
             state = .disconnected
         } else if runtimeVPNActive {
             state = .connected
-        } else if activeFlag && stateCode != "0" {
+        } else if stateCode != "0" {
             state = .connecting
         } else {
             state = .unknown
+        }
+
+        var cpuSample: RouterCPUSample?
+        if let idle = Int(values["router_cpu_idle"] ?? ""), let total = Int(values["router_cpu_total"] ?? "") {
+            cpuSample = RouterCPUSample(idle: idle, total: total)
         }
 
         return VPNStatus(
@@ -44,14 +43,15 @@ enum VPNFusionParser {
             stateCode: stateCode,
             interfaceRunning: interfaceRunning,
             rawClientList: clientList,
-            wanIP: firstNonEmpty(values["wan_ip"], wanInfo?.ip),
-            wanLocation: wanInfo?.displayLocation,
-            vpnTunnelIP: values["vpn_tunnel_ip"],
+            wanIP: firstNonEmpty(values["wan_ip"]),
+            wanLocation: nil,
+            vpnTunnelIP: firstNonEmpty(values["vpn_tunnel_ip"]),
             vpnEndpointHost: vpnEndpointHost,
-            vpnEndpointIP: firstNonEmpty(values["vpn_endpoint_ip"], vpnInfo?.ip),
-            vpnLocation: firstNonEmpty(vpnInfo?.displayLocation, locationFromEndpointHost(vpnEndpointHost)),
+            vpnEndpointIP: firstNonEmpty(values["vpn_endpoint_ip"]),
+            vpnLocation: locationFromEndpointHost(vpnEndpointHost),
             policyRuleCount: policyRuleCount,
             vpnRouteCount: vpnRouteCount,
+            routerCPUSample: cpuSample,
             routerCPUPercent: Int(values["router_cpu_percent"] ?? ""),
             routerMemoryUsedMB: Int(values["router_memory_used_mb"] ?? ""),
             routerMemoryTotalMB: Int(values["router_memory_total_mb"] ?? ""),
@@ -115,25 +115,6 @@ enum VPNFusionParser {
             values[key] = value
         }
         return values
-    }
-
-    private static func ipInfoBlock(named name: String, in output: String) -> IPInfo? {
-        let begin = "\(name)_BEGIN"
-        let end = "\(name)_END"
-        guard
-            let beginRange = output.range(of: begin),
-            let endRange = output.range(of: end, range: beginRange.upperBound..<output.endIndex)
-        else {
-            return nil
-        }
-
-        let json = String(output[beginRange.upperBound..<endRange.lowerBound])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !json.isEmpty, let data = json.data(using: .utf8) else {
-            return nil
-        }
-
-        return try? JSONDecoder().decode(IPInfo.self, from: data)
     }
 
     static func displayLocation(fromIPInfoData data: Data) -> String? {
